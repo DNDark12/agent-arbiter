@@ -1,0 +1,53 @@
+import { test, expect } from 'claude-code/testing'
+import { world } from './testing/world'
+import { digest } from './hooks/ledger.js'
+const pref=async()=>'/fixture-home/.claude/plugins/data/agent-arbiter/v1/projects/'+await digest('/fixture')+'/preferences.json'
+const mount=($:any,surface:string)=>$.ui.mount({plugin:'agent-arbiter',surface,component:'Pane',requestId:'arbiter-rules',props:{title:'Agent Arbiter',isFocused:true,bodyColumns:64,placement:'inline'}})
+
+for(const surface of ['terminal','desktop'] as const){
+ test(`compact pane offers builtin switches and custom CRUD on ${surface}`,async($,on)=>{
+  const w=world(on);const path=await pref();on('ui.open',()=>({value:{isPlaced:true}}))
+  const current=()=>JSON.parse(w.files.get(path) || '{"rules":[],"disabledRules":[]}')
+  expect((await $.command.run({command:'arbiter',args:'rules'})).text).toContain('Rules panel opened');const ui=await mount($,surface)
+  expect(await ui.find({key:'tab-rules'})).toBeDefined()
+  expect(await ui.find({key:'rule-action'})).toBeUndefined()
+  expect(await ui.find({key:'court-mode'})).toBeUndefined()
+  expect(await ui.find({key:'edit:git.force-push'})).toBeUndefined()
+  expect(await ui.find({key:'delete:git.force-push'})).toBeUndefined()
+  expect(await ui.find({key:'toggle:fs.remove'})).toBeDefined()
+  expect(await ui.find({key:'toggle:git.commit'})).toBeUndefined()
+  await ui.select({key:'rule-group',value:'file'})
+  expect(await ui.find({key:'toggle:fs.remove'})).toBeDefined()
+  await ui.select({key:'rule-group',value:'all'})
+  await ui.input({key:'rule-search',text:'git.commit'})
+  await ui.press({key:'toggle:git.commit'});expect(current().enabledRules).toContain('git.commit')
+  await ui.press({key:'new-rule'})
+  await ui.select({key:'rule-action',value:'file.write'});await ui.input({key:'rule-target',text:'src/**'})
+  await ui.select({key:'rule-effect',value:'deny'});await ui.press({key:'add-rule'})
+  const id=current().rules[0].id;expect(current().rules[0].target).toBe('src/**')
+  expect(await ui.find({key:'rule-action'})).toBeUndefined()
+  await ui.press({key:'edit:'+id});await ui.input({key:'rule-target',text:'private/**'})
+  await ui.press({key:'save-rule'});expect(current().rules[0]).toMatchObject({id,target:'private/**'})
+  await ui.press({key:'delete:'+id});expect(current().rules).toHaveLength(1)
+  await ui.press({key:'cancel-confirm'});expect(current().rules).toHaveLength(1)
+  await ui.press({key:'delete:'+id});await ui.press({key:'confirm-delete'})
+  expect(current().rules).toHaveLength(0)
+  await ui.press({key:'tab-settings'});await ui.select({key:'court-mode',value:'observe'})
+  expect(current().mode).toBe('observe')
+  await ui.unmount()
+ })
+}
+test('pane exposes persistence failures and preserves unsaved editor input',async($,on)=>{
+ world(on,true);const ui=await mount($,'desktop');await ui.press({key:'new-rule'})
+ await ui.input({key:'rule-target',text:'private/**'});await ui.press({key:'add-rule'})
+ expect((await ui.find({text:'Could not save',exact:false}))?.text).toContain('Could not save')
+ expect(await ui.find({key:'rule-target'})).toBeDefined();await ui.unmount()
+})
+test('opening pane with corrupt preferences can recover without a prior cached context',async($,on)=>{
+ const w=world(on);w.files.set(await pref(),'not json');on('ui.open',()=>({value:{isPlaced:true}}))
+ expect((await $.command.run({command:'arbiter',args:'rules'})).text).not.toContain('failed')
+ const ui=await mount($,'desktop');expect(await ui.find({key:'reset-rules'})).toBeDefined()
+ await ui.press({key:'reset-rules'});expect(w.files.get(await pref())).toBe('not json')
+ await ui.press({key:'confirm-reset'});expect(JSON.parse(w.files.get(await pref())!).rules).toEqual([])
+ await ui.unmount()
+})

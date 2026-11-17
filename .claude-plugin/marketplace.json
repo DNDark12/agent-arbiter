@@ -1,0 +1,16 @@
+{
+  "name": "agent-arbiter",
+  "owner": {
+    "name": "DNDark"
+  },
+  "metadata": {
+    "description": "Agent Arbiter: rules, approvals, discipline, scores, lessons and an advisory judge for Claude Code agents."
+  },
+  "plugins": [
+    {
+      "name": "agent-arbiter",
+      "source": "./extension",
+      "description": "Rules, approvals, discipline, scores, lessons and an advisory judge for Claude Code agents."
+    }
+  ]
+}

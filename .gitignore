@@ -1,0 +1,9 @@
+# Ledgers written by old development builds, and types the engine generates
+**/.data/
+**/.claude-plugin/types/
+# Output of local acceptance runs: session ids and machine paths
+checks/
+# Working notes and guides kept on the development machine
+docs/
+.DS_Store
+node_modules/

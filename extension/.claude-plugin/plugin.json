@@ -1,0 +1,28 @@
+{
+  "name": "agent-arbiter",
+  "version": "0.11.0",
+  "description": "Project rules, approvals, agent discipline, scores, lessons and an advisory judge for Claude Code; optional protected runtime.",
+  "author": {
+    "name": "DNDark"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enable Agent Arbiter",
+      "description": "Enable Arbiter observation and project rules.",
+      "default": true
+    },
+    "language": {
+      "type": "string",
+      "title": "Agent Arbiter language",
+      "description": "Language of the approval dialog and the rules pane. auto follows the system locale.",
+      "options": [
+        "auto",
+        "en",
+        "vi"
+      ],
+      "default": "auto"
+    }
+  }
+}
