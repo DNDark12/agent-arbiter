@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="icon.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="icon-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="icon-light.png">
+    <img src="icon.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
+  </picture>
 </p>
 
 # Agent Arbiter
