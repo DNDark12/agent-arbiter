@@ -14,8 +14,20 @@ It works as soon as it is installed. No settings, keys or setup.
 
 ## Install
 
+In a Claude Code session, run these commands **one at a time**. Add the marketplace first and wait for it to finish, then install the plugin:
+
+```text
+/plugin marketplace add DNDark12/agent-arbiter
+/plugin install agent-arbiter@agent-arbiter
 ```
-/plugin install agent-arbiter --marketplace DNDark12/agent-arbiter
+
+Choose an install scope when prompted. After installation, start a new session and run `/arbiter status` to check that the plugin loaded.
+
+From a terminal, use the equivalent commands:
+
+```sh
+claude plugin marketplace add DNDark12/agent-arbiter
+claude plugin install agent-arbiter@agent-arbiter
 ```
 
 In the desktop app: **+** next to the prompt box, then **Plugins**, **Add marketplace** with `DNDark12/agent-arbiter`, then **Add plugin**.

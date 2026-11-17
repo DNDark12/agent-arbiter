@@ -10,7 +10,21 @@
 
 A Claude Code mod that sets rules for agents and holds them to those rules. It works on install: no settings, keys or setup.
 
-Install with `/plugin install agent-arbiter --marketplace DNDark12/agent-arbiter`.
+In a Claude Code session, add the marketplace first. Wait for it to finish, then install the plugin:
+
+```text
+/plugin marketplace add DNDark12/agent-arbiter
+/plugin install agent-arbiter@agent-arbiter
+```
+
+Run each command separately and choose an install scope when prompted. Start a new session after installation, then run `/arbiter status` to check that the plugin loaded.
+
+From a terminal:
+
+```sh
+claude plugin marketplace add DNDark12/agent-arbiter
+claude plugin install agent-arbiter@agent-arbiter
+```
 
 - Asks before destructive or irreversible actions, including commands wrapped in Docker, Sail, `bash -c`, `ssh`, `xargs` or `find -exec`.
 - `/arbiter rules` opens a pane to switch built-in rules and manage your own, with ask, deny, or deny and detain.
