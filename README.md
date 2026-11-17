@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="extension/icon.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
+</p>
+
 # Agent Arbiter
 
 Rules and accountability for Claude Code agents. Agent Arbiter asks before dangerous actions, records and sanctions rule breaks, scores agents, and teaches the next agent what earlier ones got wrong.
@@ -11,6 +15,8 @@ It works as soon as it is installed. No settings, keys or setup.
 ```
 
 In the desktop app: **+** next to the prompt box, then **Plugins**, **Add marketplace** with `DNDark12/agent-arbiter`, then **Add plugin**.
+
+Requires Claude Code 2.1.325 or later, on macOS or Linux.
 
 ## Features
 
@@ -27,10 +33,11 @@ In the desktop app: **+** next to the prompt box, then **Plugins**, **Add market
 | `/arbiter rules` | Open the pane: rules, violations, agents, settings |
 | `/arbiter mode enforce\|observe\|off` | Set the mode for the project |
 | `/arbiter docket` | List violations |
-| `/arbiter release <id>\|all` | Release a violation |
-| `/arbiter citizens` | Show agent scores |
-| `/arbiter lessons` | Show lessons |
+| `/arbiter release <id> [reason]` | Release a violation |
+| `/arbiter citizens [all]` | Show agent scores for this project or all projects |
+| `/arbiter lessons` | Show lessons and how well they work |
 | `/arbiter judge` | Show reviews and pending findings |
+| `/arbiter purge [all]` | Delete Arbiter's data |
 | `/arbiter help` | List every command |
 
 ## Data and privacy
@@ -38,6 +45,8 @@ In the desktop app: **+** next to the prompt box, then **Plugins**, **Add market
 Data stays on your machine in `~/.claude/plugins/data/agent-arbiter/`. Prompts, code and tool output are not stored. Routine records are removed after 30 days.
 
 The judge sends the brief, the final report and up to three written files to the model through your own session, with secrets masked. It runs at most 20 times a day per project and can be switched off with `/arbiter judge off`.
+
+Uninstalling the plugin keeps this data. Run `/arbiter purge all` first to remove it.
 
 ## Limits
 

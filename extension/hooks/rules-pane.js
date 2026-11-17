@@ -1,11 +1,12 @@
 import { observationContext } from './context.js';
-import { ACTIONS, EFFECTS, loadProjectSettings, saveProjectSettings, listRules, toggleBuiltin, createUserRule, updateUserRule, deleteUserRule } from './project-rules.js';
+import { ACTIONS, EFFECTS, loadProjectSettings, saveProjectSettings, updateProjectSettings, listRules, toggleBuiltin, createUserRule, updateUserRule, deleteUserRule } from './project-rules.js';
 import { disciplineState, docket, releaseViolations } from './discipline.js';
 import { t, ruleLabel, actionLabel, currentLanguage } from './i18n.js';
 import { readProject } from './events.js';
 import { reduceScores } from './scoring.js';
 import { projectLessons, shareLessons } from './lessons.js';
 import { reduceReviews, decideFinding, decideExemplar } from './judge.js';
+import { refreshStatus } from './status.js';
 
 const PANE='arbiter-rules', PAGE_SIZE=6;
 const states=new Map(),mutations=new Map();
@@ -20,7 +21,7 @@ function errorText(error){return t('pane.failed',{error:error instanceof Error?e
 async function mutate($,ctx,edit){
   const state=stateFor(ctx),id=key(ctx);
   const pending=(mutations.get(id) || Promise.resolve()).then(async()=>{
-    try{await saveProjectSettings($,ctx,edit(await loadProjectSettings($,ctx)));state.message=t('pane.saved');return true;}
+    try{await updateProjectSettings($,ctx,edit);state.message=t('pane.saved');return true;}
     catch(error){state.message=errorText(error);return false;}
   });
   mutations.set(id,pending);
@@ -45,7 +46,7 @@ async function confirmAction($,ctx){
   catch(error){change($,state,{message:errorText(error)});}
 }
 async function release($,ctx,id){
-  try{await releaseViolations($,ctx,[id],{kind:'ui',origin:'ui',id:crypto.randomUUID()});stateFor(ctx).message=t('pane.released');}
+  try{await releaseViolations($,ctx,[id],{kind:'ui',origin:'ui',id:crypto.randomUUID()});stateFor(ctx).message=t('pane.released');await refreshStatus($,ctx);}
   catch(error){stateFor(ctx).message=errorText(error);}
   redraw($);
 }
@@ -134,6 +135,7 @@ async function decide($,ctx,kind,ref,decision){
     const reviews=reduceReviews((await readProject($,ctx)).events,ctx.projectId);
     const done=kind==='finding'?await decideFinding($,ctx,reviews,ref,decision,source):await decideExemplar($,ctx,reviews,ref,decision,source);
     state.message=t(done?'pane.decided':'pane.decideGone');
+    if(done)await refreshStatus($,ctx);
   }catch(error){state.message=errorText(error);}
   redraw($);
 }

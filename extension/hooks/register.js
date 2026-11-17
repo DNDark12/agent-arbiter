@@ -8,12 +8,16 @@ import { handleCourt, observing, currentEnforcement, enforcementArmed, courtDisa
 import { emit, readProject } from './events.js';
 import { canonical, digest, replay } from './ledger.js';
 import { redact, fileMetadata } from './privacy.js';
-import { observationContext as context } from './context.js';
+import { observationContext as context, platformSupported } from './context.js';
 import { citizen, bindCitizen } from './citizens.js';
 import { transcriptCoverage, gitSnapshot, gitHead } from './forensics.js';
 import { rememberCitizen, takeSpawnNote, handbackNoteFor, replacementAllowed, rejectReplacement, beginReplacement, endReplacement } from './discipline.js';
-import { setLanguage } from './i18n.js';
+import { setLanguage, t } from './i18n.js';
+import { refreshStatus, statusCounts } from './status.js';
+import { disciplineState } from './discipline.js';
+import { reduceReviews } from './judge.js';
 import { rememberBrief, noteActivity, judgeRun } from './judge.js';
+import { briefProfile } from './roles.js';
 import { maintain, pruneProject, RETENTION_DAYS } from './retention.js';
 
 const offers = new Map();
@@ -29,7 +33,18 @@ async function warn($) {
 }
 
 
+let supported;
+const UNSUPPORTED = () => t('cmd.unsupported');
+async function platformReady($) {
+  if (supported === undefined) {
+    supported = await platformSupported($);
+    if (!supported) { try { await $.ui.log(UNSUPPORTED()); } catch { /* The notice is best effort. */ } }
+  }
+  return supported;
+}
+
 async function collecting($) {
+  if (!await platformReady($)) return false;
   try { return await observing($); }
   catch { await warn($); return true; } // Observe failures never alter tool execution.
 }
@@ -44,7 +59,12 @@ async function summary($, cleanup = false) {
   const {events,invalid,parts,removed} = await readProject($, ctx, cleanup);
   const state = replay(events);
   const mode=(await currentEnforcement($,ctx)).mode;
-  return `Agent Arbiter — ${mode}\nEvents: ${state.eventCount}; runs: ${state.runs.length}; tool calls: ${state.toolCalls.length}\nInvalid: ${invalid.length}; conflicts: ${state.conflicts.length}; unfinished parts: ${parts.length}\nCollection failures in this hook process: ${failures}${cleanup ? `\nExpired private parts removed: ${removed + (pruned.parts || 0)}\nRoutine records older than ${RETENTION_DAYS} days removed: ${pruned.removed}${pruned.skipped ? ` (${pruned.skipped})` : ''}` : ''}\n${mode==='enforce'?'Built-in project rules enabled; hardened runtime is optional.':'No enforcement.'} Transcript completeness is not established.`;
+  const counts = statusCounts(await disciplineState($, ctx, true), reduceReviews(events, ctx.projectId));
+  const lines = [t('cmd.status', { mode, events: state.eventCount, runs: state.runs.length, calls: state.toolCalls.length,
+    invalid: invalid.length, conflicts: state.conflicts.length, parts: parts.length, ...counts, failures })];
+  if (cleanup) lines.push(t('cmd.cleanup', { parts: removed + (pruned.parts || 0), days: RETENTION_DAYS,
+    removed: `${pruned.removed}${pruned.skipped ? ` (${pruned.skipped})` : ''}` }));
+  return lines.join('\n');
 }
 
 /** @type {import('claude-code').Register} */
@@ -64,6 +84,7 @@ export const register = (on, options = {}) => {
         model: redact(await $.session.model()), git: await gitSnapshot($, ctx.root) });
       // Daily upkeep in the background: old routine records and stale part files.
       void maintain($, ctx);
+      void refreshStatus($, ctx);
     } catch { await warn($); }
     return next(e);
   });
@@ -114,7 +135,8 @@ export const register = (on, options = {}) => {
           modelVerified,probationFrom:spawnPolicy?.probationFrom || [],
           reservationIds:spawnPolicy?.reservationIds || [],reservationClaim:spawnPolicy?.reservationClaim || null,
           ...(spawnPolicy?.replacement?{replacement:spawnPolicy.replacement}:{}),
-          ...(spawnPolicy?.lessons?.length?{lessons:spawnPolicy.lessons}:{}) });}catch{await warn($);}
+          ...(spawnPolicy?.lessons?.length?{lessons:spawnPolicy.lessons}:{}),...(spawnPolicy?.lessonsHeldOut?{lessonsHeldOut:true}:{}),
+          ...(typeof originalInput.prompt==='string' && !originalInput.resume?{profile:briefProfile(originalInput.prompt)}:{}) });}catch{await warn($);}
         if(result.agentId && !result.deny){
           rememberCitizen(ctx,result.agentId,identity);
           rememberBrief(ctx,result.agentId,originalInput,identity);
@@ -221,11 +243,12 @@ export const register = (on, options = {}) => {
         transcript: await transcriptCoverage($, e.agentId), git: await gitSnapshot($, ctx.root) });
     } catch { await warn($); }
     // The judge reviews in the background: the turn is handed back without waiting.
-    if (ctx && e.agentId) void judgeRun($, ctx, e);
+    if (ctx && e.agentId) void judgeRun($, ctx, e).then(review => review ? refreshStatus($, ctx) : null);
     return next(e);
   });
 
   on('command.run', { command: 'arbiter' }, async ($, e) => {
+    if (!await platformReady($)) return { text: UNSUPPORTED() };
     const answer = await handleCourt($, e);
     if (answer) return answer;
     if (!['', 'status', 'verify', 'cleanup'].includes(e.args.trim())) return { text: 'Usage: /arbiter rules | status | mode enforce|observe|off | docket | release <violation-id>|all | quarantine | verify | cleanup | help' };

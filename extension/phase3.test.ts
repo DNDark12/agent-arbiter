@@ -17,7 +17,7 @@ async function seed(files:Map<string,string>,pardoned=false){
 }
 test('native docket/record show projected case while plugin cannot sentence or pardon',async($,on)=>{
  const w=world(on),data=await seed(w.files)
- const docket=JSON.parse((await $.command.run({command:'arbiter',args:'docket'})).text)
+ const docket=JSON.parse((await $.command.run({command:'arbiter',args:'docket cases'})).text)
  expect(docket.cases).toHaveLength(1);expect(docket.enforced).toBe(false)
  const record=JSON.parse((await $.command.run({command:'arbiter',args:'record '+data.citizenId})).text)
  expect(record.citizen.trustDelta).toBe(-3)

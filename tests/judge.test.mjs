@@ -59,7 +59,9 @@ test('a finished run that did work is reviewed once, from masked evidence; the l
  const stored=JSON.stringify((await readProject(w.$,ctx)).events.filter(event=>event.kind==='judge.review'));
  for(const text of ['Add function a','all tests passed','export const'])assert.ok(!stored.includes(text),text+' stored in the ledger');
  const [review]=await reviews(w,ctx);
- assert.deepEqual([review.role,review.difficulty,review.quality,review.citizen.name,review.agentId],['dev','hard',92,'developer','dev-1']);
+ // Difficulty comes from the brief before the run, not from the judge's view of the result.
+ assert.deepEqual([review.role,review.difficulty,review.quality,review.citizen.name,review.agentId],['dev','easy',92,'developer','dev-1']);
+ assert.equal((await readProject(w.$,ctx)).events.find(event=>event.kind==='judge.review').data.judgeDifficulty,'hard');
  assert.deepEqual(review.findings.map(finding=>[finding.severity,finding.dimension,finding.state]),[['high','honesty','open']]);
  assert.match(review.findings[0].ref,/^[a-f0-9]{12}-0$/);
 });
@@ -107,18 +109,60 @@ test('findings count only when the person confirms; a dismissed finding withdraw
  assert.equal((await spawn()).input.prompt,'Build it.','an open finding teaches nothing');
  assert.match((await w.command('finding '+list[0].findings[0].ref+' confirm','sdk')).text,/Human composer/);
  assert.match((await w.command('finding nope confirm')).text,/Usage: \/arbiter finding/);
- assert.equal(JSON.parse((await w.command('finding '+list[0].findings[0].ref+' confirm')).text).decision,'confirmed');
- assert.equal(JSON.parse((await w.command('finding '+list[1].findings[0].ref+' dismiss')).text).decision,'dismissed');
+ assert.match((await w.command('finding '+list[0].findings[0].ref+' confirm')).text,/^Recorded: .* confirmed\.$/);
+ assert.match((await w.command('finding '+list[1].findings[0].ref+' dismiss')).text,/dismissed\.$/);
  assert.match((await w.command('exemplar '+list[0].ref+' approve')).text,/Usage: \/arbiter exemplar/,'only a candidate can be approved');
- assert.equal(JSON.parse((await w.command('exemplar '+list[2].ref+' approve')).text).decision,'approved');
+ assert.match((await w.command('exemplar '+list[2].ref+' approve')).text,/approved\.$/);
  list=await reviews(w,ctx);
  assert.deepEqual(list.map(review=>[review.findings[0]?.state ?? null,review.disputed,review.exemplar.state]),[['confirmed',false,'none'],['dismissed',true,'none'],[null,false,'approved']]);
  // Quality averages the two reviews that stand: 92 and 97.
  await emit(w.$,ctx,null,'spawn.result','run',{status:'started',childAgentId:'dev-1',citizen:identity()});
- assert.match((await w.command('citizens')).text,/quality 95 \(2 reviews, 2 hard\)/);
+ assert.match((await w.command('citizens')).text,/quality 95 \(2 reviews, 0 hard\)/);
  const taught=(await spawn()).input.prompt;
  assert.match(taught,/Agent Arbiter lessons\..*\n- Report says tests passed but no test command ran \(review finding, honesty\)\nAgent Arbiter exemplars\..*\n- Ran the targeted tests before reporting and listed what was not verified\]$/s);
  assert.ok(!taught.includes('Touched an unrelated file'),'a dismissed finding is not taught');
  const lessons=(await w.command('lessons')).text;
  assert.match(lessons,/· finding · Report says tests passed/);assert.match(lessons,/· exemplar · Ran the targeted tests/);
+});
+
+test('brief profile: difficulty and run role are read from the brief before the run',async()=>{
+ const {briefProfile,effectiveRole}=await import('../extension/hooks/roles.js');
+ assert.deepEqual(briefProfile('Fix the typo in README.md'),{runRole:'dev',difficulty:'easy'});
+ assert.deepEqual(briefProfile('Review the diff of the payment module and find bugs.'),{runRole:'review',difficulty:'easy'});
+ assert.equal(briefProfile('Refactor the cache layer for concurrency and fix the race in the transaction handling.').difficulty,'medium');
+ assert.equal(briefProfile('Refactor the migration with a backfill, keep it idempotent, handle concurrency, and update a.php b.php c.php d.php'+' x'.repeat(800)).difficulty,'hard');
+ assert.equal(briefProfile('Check for SQL injection and XSS in the auth controller').runRole,'security');
+ assert.deepEqual(briefProfile(undefined),{runRole:'other',difficulty:'easy'});
+ assert.equal(effectiveRole('general-purpose','Write unit tests for the parser'),'test-design');
+ assert.equal(effectiveRole('developer','Review this change'),'dev','a named agent type keeps its own role');
+ assert.equal(effectiveRole('general-purpose','Review this change',{'general-purpose':'other'}),'other','the person decided');
+});
+
+test('a reviewer is a plaintiff: defects it reports are filed against the agent that last wrote those files',async t=>{
+ const {w,ctx}=await fresh(t);
+ await ran(w,ctx,'dev-1',{'src/a.js':'export const a = 1;\n'});
+ judge.rememberBrief(ctx,'dev-2',{prompt:'Add b'},identity('engineer'));judge.noteActivity(ctx,'dev-2',{tool:'Write',target:'src/b.js',status:'completed'});
+ judge.rememberBrief(ctx,'rev-1',{prompt:'Review the diff and find bugs'},identity('reviewer'));
+ judge.noteActivity(ctx,'rev-1',{tool:'Bash',target:'git [arguments redacted]',status:'completed'});
+ w.reply=verdict({findings:[],accusations:[{file:'src/a.js',severity:'high',claim:'a() ignores negative input'},{file:'./src/b.js',claim:'b leaks a handle'},
+  {file:'../etc/passwd',claim:'escape'},{file:'src/none.js',claim:'nobody wrote this'}]});
+ assert.match(await judge.judgeRun(w.$,ctx,turn('rev-1','r1','Found two bugs.')),/^[a-f0-9]{64}$/);
+ assert.match(w.requests[0].prompt,/"accusations"/);
+ const list=await reviews(w,ctx);
+ const against=agent=>list.find(review=>review.agentId===agent);
+ assert.deepEqual(against('dev-1').findings.map(f=>[f.severity,f.claim,f.state,f.evidence]),[['high','a() ignores negative input','open','reviewer reported it in src/a.js']]);
+ assert.equal(against('dev-1').plaintiff,'reviewer');assert.equal(against('dev-1').quality,null,'a complaint does not score quality');
+ assert.equal(against('dev-2').findings[0].claim,'b leaks a handle');
+ assert.equal(list.length,3,'the reviewer\'s own review plus one complaint per accused agent');
+ assert.match((await w.command('judge')).text,/· complaint by reviewer/);
+ // Confirmed, the complaint becomes a lesson for the accused agent type.
+ await w.command('finding '+against('dev-1').findings[0].ref+' confirm');
+ const taught=await enforceSpawn(w.$,ctx,{subagentType:'developer',prompt:'Build it.'},identity('developer',null));
+ assert.match(taught.input.prompt,/a\(\) ignores negative input \(review finding, correctness\)/);
+ // A non-reviewer's accusations are ignored.
+ judge.rememberBrief(ctx,'dev-3',{prompt:'Add c'},identity());judge.noteActivity(ctx,'dev-3',{tool:'Write',target:'src/c.js',status:'completed'});
+ w.reply=verdict({accusations:[{file:'src/a.js',claim:'x'}]});
+ await judge.judgeRun(w.$,ctx,turn('dev-3','d3'));
+ assert.ok(!w.requests.at(-1).prompt.includes('"accusations"'));
+ assert.equal((await reviews(w,ctx)).filter(review=>review.plaintiff).length,2);
 });

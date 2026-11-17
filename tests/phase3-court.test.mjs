@@ -44,7 +44,7 @@ test('SDK cannot sentence/pardon; preview IDs and missing actor evidence cannot 
  assert.match((await command('verdict '+JSON.stringify({...input,evidenceIds:[preview.evidenceId]}))).text,/evidence/i);
  assert.match((await command('verdict '+JSON.stringify({...input,actor:{sessionId:'s',agentId:'someone-else'}}))).text,/evidence|citizen/i);
  assert.match((await command('pardon '+'a'.repeat(64),'plugin')).text,/human/i);
- assert.deepEqual(JSON.parse((await command('docket')).text).cases,[]);
+ assert.deepEqual(JSON.parse((await command('docket cases')).text).cases,[]);
 });
 test('two concurrent judgments of same evidence publish one verdict event',async t=>{
  const {$,ctx,command,input}=await fixture(t);
@@ -71,7 +71,7 @@ test('unknown resume identity must never inherit an older known citizen',async t
  const {$,ctx,command,input}=await fixture(t);
  await emit($,ctx,null,'spawn.result','unknown-resume',{status:'started',childAgentId:'a',citizen:{id:null,identityStrength:'unknown'}});
  assert.match((await command('verdict '+JSON.stringify(input))).text,/rejected|identity|citizen/i);
- assert.deepEqual(JSON.parse((await command('docket')).text).cases,[]);
+ assert.deepEqual(JSON.parse((await command('docket cases')).text).cases,[]);
 });
 test('post-publication cleanup failure is unconfirmed, never a false rejection',async t=>{
  const {$,command,input}=await fixture(t),run=$.process.run;

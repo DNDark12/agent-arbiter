@@ -65,12 +65,13 @@ function validate(input) {
   // lessons: teach new agents what earlier ones were stopped for. roles: the
   // person's own role per agent type name, overriding the automatic one.
   // judge: review finished subagent runs with one small model call each.
-  const lessons = input.lessons ?? true, roles = input.roles ?? {}, judge = input.judge ?? true;
-  if (typeof lessons !== 'boolean' || typeof judge !== 'boolean') throw new Error('Invalid lessons or judge switch');
+  // lessonExperiment: hold lessons back from one run in five, to measure whether they help.
+  const lessons = input.lessons ?? true, roles = input.roles ?? {}, judge = input.judge ?? true, lessonExperiment = input.lessonExperiment ?? false;
+  if (typeof lessons !== 'boolean' || typeof judge !== 'boolean' || typeof lessonExperiment !== 'boolean') throw new Error('Invalid lessons or judge switch');
   if (!roles || typeof roles !== 'object' || Array.isArray(roles) || Object.keys(roles).length > MAX_RULES ||
       Object.entries(roles).some(([name, role]) => !/^[A-Za-z0-9:_. -]{1,128}$/.test(name) || !ROLES.includes(role))) throw new Error('Invalid agent role');
   return { mode, hardened, disabledRules: [...new Set(disabledRules)], enabledRules: [...new Set(enabledRules)], rules: validated,
-    lessons, judge, roles: Object.fromEntries(Object.entries(roles).sort(([left], [right]) => left < right ? -1 : 1)) };
+    lessons, judge, lessonExperiment, roles: Object.fromEntries(Object.entries(roles).sort(([left], [right]) => left < right ? -1 : 1)) };
 }
 
 export async function loadProjectSettings($, ctx) {
@@ -97,6 +98,32 @@ export async function saveProjectSettings($, ctx, settings) {
     throw error;
   }
   return value;
+}
+
+const LOCK_STALE_MS = 10000;
+const LOCK_TRIES = 60;
+async function pause($, ms) {
+  try { await $.clock.sleep(ms); } catch { /* Without a clock the next try follows at once. */ }
+}
+
+// Read, edit and write the preferences under a lock shared by every session, so
+// two sessions changing rules at once never lose either change. The lock is a
+// hard link, created only if absent; a lock older than ten seconds is abandoned.
+export async function updateProjectSettings($, ctx, edit) {
+  const path = settingsPath(ctx), lock = `${path}.lock`, mine = `${lock}.${crypto.randomUUID()}`;
+  await $.fs.write(mine, String(Date.now()));
+  try {
+    for (let attempt = 0; ; attempt += 1) {
+      if ((await $.process.run(['/bin/ln', mine, lock])).exitCode === 0) break;
+      let stale = false;
+      try { stale = Date.now() - (await $.fs.stat(lock)).mtimeMs > LOCK_STALE_MS; } catch { continue; }
+      if (stale) { await $.process.run(['/bin/rm', '-f', lock]); continue; }
+      if (attempt >= LOCK_TRIES) throw new Error('Rules are being changed in another session; try again.');
+      await pause($, 50);
+    }
+    try { return await saveProjectSettings($, ctx, edit(await loadProjectSettings($, ctx))); }
+    finally { await $.process.run(['/bin/rm', '-f', lock]); }
+  } finally { await $.process.run(['/bin/rm', '-f', mine]); }
 }
 
 function enabled(rule, settings) {

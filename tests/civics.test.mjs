@@ -118,9 +118,9 @@ test('commands: citizens, role, lessons and sharing a lesson with another projec
  assert.match(listed,new RegExp(taught.lessons[0]+' · developer \\(dev\\) · file\\.write secrets/\\*\\* — stopped for: file\\.write on secrets/key · broken 1× · taught 1× · broken again after teaching 0×'));
  assert.match((await w.command('lessons share all','sdk')).text,/Human composer/);
  assert.match((await w.command('lessons share zzzz')).text,/No lesson matches/);
- assert.deepEqual(JSON.parse((await w.command('lessons share '+taught.lessons[0].slice(0,6))).text).shared,taught.lessons);
- assert.deepEqual(JSON.parse((await w.command('lessons share all')).text).shared,[],'sharing twice adds nothing');
- assert.equal(JSON.parse((await w.command('lessons library')).text).library[0].sourceProjectId,ctx.projectId);
+ assert.match((await w.command('lessons share '+taught.lessons[0].slice(0,6))).text,/^Shared 1 lesson/);
+ assert.match((await w.command('lessons share all')).text,/already shared/,'sharing twice adds nothing');
+ assert.match((await w.command('lessons library')).text,new RegExp('^Lessons shared with every project:\n'+taught.lessons[0]+' · developer \\(dev\\)'));
  // Another project under the same Claude config: the shared lesson reaches the same agent type.
  const other=w.root+'/other-project';await fs.mkdir(other);
  w.$.session.root=async()=>other;w.$.session.id=async()=>'other-session';
@@ -129,7 +129,7 @@ test('commands: citizens, role, lessons and sharing a lesson with another projec
  const abroad=await spawn(w,otherCtx);
  assert.match(abroad.input.prompt,/- file\.write secrets\/\*\* — stopped for: file\.write on secrets\/key \(from another project\)\]$/);
  assert.equal((await spawn(w,otherCtx,'tester')).input.prompt,'Build it.');
- assert.deepEqual(JSON.parse((await w.command('lessons unshare all')).text).removed,taught.lessons);
+ assert.match((await w.command('lessons unshare all')).text,/^Removed 1 lesson/);
  assert.equal((await spawn(w,otherCtx)).input.prompt,'Build it.');
  assert.match((await w.command('lessons unshare all')).text,/No shared lesson/);
 });

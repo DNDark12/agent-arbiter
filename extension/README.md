@@ -1,6 +1,12 @@
+<p align="center">
+  <img src="icon.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
+</p>
+
 # Agent Arbiter
 
 A Claude Code mod that sets rules for agents and holds them to those rules. It works on install: no settings, keys or setup.
+
+Install with `/plugin install agent-arbiter --marketplace DNDark12/agent-arbiter`.
 
 - Asks before destructive or irreversible actions, including commands wrapped in Docker, Sail, `bash -c`, `ssh`, `xargs` or `find -exec`.
 - `/arbiter rules` opens a pane to switch built-in rules and manage your own, with ask, deny, or deny and detain.

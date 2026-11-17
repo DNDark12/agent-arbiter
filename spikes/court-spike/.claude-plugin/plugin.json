@@ -1,5 +1,0 @@
-{
-  "name": "court-spike",
-  "version": "0.1.0",
-  "description": "Agent Court Phase 0 spike: logs agent events and reacts only to SPIKE_ / [spike:...] markers."
-}

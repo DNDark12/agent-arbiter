@@ -10,6 +10,7 @@
 // the project on that model for JAIL_TERM_MS: starting it again runs another
 // model. The person releases a violation from /arbiter rules or /arbiter release.
 import {resolvedModelId} from './citizens.js';
+import { t } from './i18n.js';
 import { canonical, digest } from './ledger.js';
 import { emit, readProject } from './events.js';
 
@@ -38,6 +39,8 @@ const runKey = (sessionId, agentId) => `${sessionId}:${agentId}`;
 const byTime = (left, right) => left.occurredAt - right.occurredAt ||
   (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
 
+export function forgetProject(projectId) { snapshots.delete(projectId); localViolations.delete(projectId); localRefusals.delete(projectId); }
+
 export function resetDiscipline() {
   for (const store of [snapshots, localViolations, localRefusals, localReleases, citizens, reported, spawnNotes, rejectedRuns, pendingReplacements]) store.clear();
 }
@@ -62,17 +65,18 @@ function violationRecord(id, at, sessionId, agentId, data, released, now) {
     ruleIds: Array.isArray(data.ruleIds) ? data.ruleIds.filter(rule => typeof rule === 'string') : [],
     detail: typeof data.detail === 'string' ? data.detail : '', toolCallId: data.toolCallId ?? null,
     citizen: data.citizen && typeof data.citizen === 'object' ? data.citizen : null,
-    points: POINTS[data.sanction], status };
+    points: POINTS[data.sanction], status, releaseReason: released instanceof Map ? released.get(id) ?? null : null };
 }
 
 export function reduceDiscipline(events, projectId, now = Date.now()) {
   const list = (Array.isArray(events) ? events : []).filter(event => event && event.projectId === projectId &&
     event.data && typeof event.data === 'object').sort(byTime);
-  const released = new Set(), bindings = new Map(), refused = [], rejected = new Set();
+  // Releasing is how the person pardons or overturns a violation; the reason is kept.
+  const released = new Map(), bindings = new Map(), refused = [], rejected = new Set();
   for (const event of list) {
     if (event.kind === 'discipline.released' && RELEASERS.has(event.data.source?.origin) &&
         Array.isArray(event.data.violationIds)) {
-      for (const id of event.data.violationIds) released.add(id);
+      for (const id of event.data.violationIds) released.set(id, typeof event.data.reason === 'string' ? event.data.reason.slice(0, 200) : null);
     } else if (event.kind === 'spawn.result' && event.data.status === 'started' &&
         typeof event.data.childAgentId === 'string') {
       if(event.data.modelVerified===false && event.data.replacement?.blockedModels)rejected.add(runKey(event.sessionId,event.data.childAgentId));
@@ -174,20 +178,21 @@ export async function recordViolation($, ctx, event, input) {
   let id;
   try { id = await emit($, ctx, actor, 'discipline.violation', toolCallId || crypto.randomUUID(), data); }
   catch { id = `local:${crypto.randomUUID()}`; }
-  const record = violationRecord(id, Date.now(), ctx.sessionId, actor, data, new Set(), Date.now());
+  const record = violationRecord(id, Date.now(), ctx.sessionId, actor, data, new Map(), Date.now());
   if (!localViolations.has(ctx.projectId)) localViolations.set(ctx.projectId, []);
   localViolations.get(ctx.projectId).push(record);
   snapshots.delete(ctx.projectId);
   return record;
 }
 
-export async function releaseViolations($, ctx, violationIds, source) {
+export async function releaseViolations($, ctx, violationIds, source, reason = null) {
   const ids = [...new Set(violationIds)].filter(id => typeof id === 'string' && id);
   if (!ids.length) return null;
   let evidenceId = null;
   // A violation that never reached the ledger has nothing to release there.
   const persisted = ids.filter(id => !id.startsWith('local:'));
-  if (persisted.length) evidenceId = await emit($, ctx, null, 'discipline.released', crypto.randomUUID(), { violationIds: persisted, source });
+  const why = typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 200) : null;
+  if (persisted.length) evidenceId = await emit($, ctx, null, 'discipline.released', crypto.randomUUID(), { violationIds: persisted, source, ...(why ? { reason: why } : {}) });
   for (const id of ids) localReleases.add(id);
   snapshots.delete(ctx.projectId);
   return evidenceId;
@@ -259,7 +264,7 @@ export function docket(state, limit = 50) {
   return [...state.violations].sort((left, right) => right.at - left.at).slice(0, limit).map(record => ({
     id: record.id, at: record.at, who: record.citizen ? `${record.citizen.name}${record.citizen.model ? `@${record.citizen.model}` : ''}` :
       record.agentId ? 'agent' : 'main', sanction: record.sanction, reason: record.reason,
-    ruleIds: record.ruleIds, points: record.points, status: record.status }));
+    ruleIds: record.ruleIds, points: record.points, status: record.status, releaseReason: record.releaseReason ?? null }));
 }
 
 
@@ -282,3 +287,13 @@ export function endReplacement(ctx,attempt){
  if(!ctx)return;const key=pendingKey(ctx),pending=pendingReplacements.get(key);pending?.delete(attempt);if(!pending?.size)pendingReplacements.delete(key);
 }
 export function replacementPending(ctx){return !!pendingReplacements.get(pendingKey(ctx))?.size;}
+
+export function docketText(state, limit = 30) {
+  const records = docket(state, limit);
+  if (!records.length) return t('cmd.docketNone');
+  const rule = id => id.startsWith('user:') ? id : t(`rule.${id}`);
+  return [t('cmd.docketHead'), ...records.map(record => t('cmd.docketLine', { id: record.id.slice(0, 12),
+    when: new Date(record.at).toISOString().slice(0, 16).replace('T', ' '), who: record.who, sanction: t(`sanction.${record.sanction}`),
+    points: record.points, rules: record.ruleIds.map(rule).join(', '),
+    status: record.status === 'released' && record.releaseReason ? t('cmd.releasedReason', { reason: record.releaseReason }) : t(`status.${record.status}`) }))].join('\n');
+}

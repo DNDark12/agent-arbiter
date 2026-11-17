@@ -1,8 +1,12 @@
 // Citizen scorecard: one row per agent type, definition and model in a project.
 // It is built only from what the ledger holds (runs, turn usage, violations),
 // so it measures conduct under the project's rules, not the quality of the work.
+import { t } from './i18n.js';
 import { citizenSummary } from './discipline.js';
 import { roleOf } from './roles.js';
+import { readProject } from './events.js';
+import { reduceDiscipline } from './discipline.js';
+import { reduceReviews } from './judge.js';
 
 const runKey = (sessionId, agentId) => `${sessionId}:${agentId}`;
 const BASE_TRUST = 100;
@@ -63,11 +67,39 @@ export function reduceScores(events, projectId, discipline, overrides = {}, revi
 }
 
 export function scoreTable(rows) {
-  if (!rows.length) return 'No agent runs recorded in this project yet.';
-  return ['Agent Arbiter citizens (trust 100 = no violations in effect)', ...rows.map(row =>
-    `${row.name}${row.model ? `@${row.model}` : ''} · role ${row.role} · trust ${row.trust} · runs ${row.runs} (clean ${row.cleanRuns})` +
-    ` · fines ${row.fines} · detentions ${row.detentions}${row.detained ? ' · DETAINED' : ''}` +
-    (row.reviews ? ` · quality ${row.quality} (${row.reviews} reviews, ${row.hardTasks} hard)` : ' · quality not reviewed') +
-    (row.openFindings ? ` · ${row.openFindings} findings to decide` : '') +
-    (row.outputTokens ? ` · output tokens ${row.outputTokens}` : ''))].join('\n');
+  if (!rows.length) return t('tbl.scoresNone');
+  return [t('tbl.scoresHead'), ...rows.map(row =>
+    t('tbl.scoreRow', { who: `${row.name}${row.model ? `@${row.model}` : ''}`, role: row.role, trust: row.trust, runs: row.runs,
+      clean: row.cleanRuns, fines: row.fines, detentions: row.detentions }) + (row.detained ? t('tbl.detained') : '') +
+    (row.reviews ? t('tbl.quality', { quality: row.quality, reviews: row.reviews, hard: row.hardTasks }) : t('tbl.qualityNone')) +
+    (row.openFindings ? t('tbl.findingsOpen', { count: row.openFindings }) : '') +
+    (row.outputTokens ? t('tbl.tokens', { tokens: row.outputTokens }) : ''))].join('\n');
+}
+
+// One row per agent type and model across every project on this machine.
+export async function allProjectScores($, ctx) {
+  const base = `${ctx.archiveRoot}/events`, merged = new Map();
+  let projects = 0;
+  if (await $.fs.exists(base)) {
+    for (const entry of await $.fs.list(base)) {
+      if (entry.kind !== 'dir' || entry.isLink || !/^[a-f0-9]{64}$/.test(entry.name)) continue;
+      let events;
+      try { events = (await readProject($, { ...ctx, projectId: entry.name, dataRoot: ctx.archiveRoot, signer: null, authConfigured: false, authError: false })).events; }
+      catch { continue; }
+      const rows = reduceScores(events, entry.name, reduceDiscipline(events, entry.name), {}, reduceReviews(events, entry.name));
+      if (rows.length) projects += 1;
+      for (const row of rows) {
+        const key = `${row.name}\u0000${row.model ?? ''}`, total = merged.get(key) ?? { ...row, runs: 0, cleanRuns: 0, fines: 0, detentions: 0,
+          points: 0, outputTokens: 0, durationMs: 0, reviews: 0, hardTasks: 0, openFindings: 0, qualityTotal: 0, detained: false };
+        for (const field of ['runs', 'cleanRuns', 'fines', 'detentions', 'points', 'outputTokens', 'durationMs', 'reviews', 'hardTasks', 'openFindings']) total[field] += row[field];
+        total.qualityTotal += (row.quality ?? 0) * row.reviews;
+        total.detained ||= row.detained;
+        merged.set(key, total);
+      }
+    }
+  }
+  const rows = [...merged.values()].map(({ qualityTotal, ...row }) => ({ ...row, trust: Math.max(0, BASE_TRUST - row.points),
+    quality: row.reviews ? Math.round(qualityTotal / row.reviews) : null }))
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : (left.model ?? '') < (right.model ?? '') ? -1 : 1);
+  return rows.length ? `${t('tbl.scoresAllHead', { projects })}\n${scoreTable(rows).split('\n').slice(1).join('\n')}` : t('tbl.scoresNone');
 }

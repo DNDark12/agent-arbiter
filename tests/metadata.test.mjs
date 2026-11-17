@@ -69,3 +69,21 @@ test('user definitions follow CLAUDE_CONFIG_DIR, and two matching names stay amb
  $.fs.list=async()=>[{name:'a.md',kind:'file'},{name:'b.md',kind:'file'}];
  assert.equal((await citizen($,'/repo','v1',input,{source:'userSettings'},'actual')).id,null);
 });
+
+test('masking covers common token shapes, credential URLs, key blocks and secret files',async()=>{
+ const {redact,maskText,SECRET_FILE}=await import('../extension/hooks/privacy.js');
+ const samples=['xoxb-1234567890-abcdefghij','AIza'+'A'.repeat(35),'sk_live_'+'a'.repeat(24),'glpat-'+'b'.repeat(20),'npm_'+'c'.repeat(36),
+  'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'];
+ for(const sample of samples)assert.ok(!redact('value '+sample).includes(sample),sample);
+ assert.equal(redact('mysql://app:hunter2@db:3306/x'),'mysql://[REDACTED]@db:3306/x');
+ assert.match(redact('"client_secret": "abc123"'),/client_secret": "\[REDACTED\]/);
+ assert.ok(!redact('Authorization: Basic dXNlcjpwYXNz').includes('dXNlcjpwYXNz'));
+ const key='-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nAAAA\n-----END RSA PRIVATE KEY-----';
+ const masked=maskText('before\n'+key+'\nafter password=x1');
+ assert.equal(masked,'before\n[REDACTED PRIVATE KEY]\nafter password=[REDACTED]');
+ assert.equal(maskText('-----BEGIN PRIVATE KEY-----\nAAAA'),'[REDACTED PRIVATE KEY]','an unterminated block is masked to the end');
+ assert.equal(maskText('plain code\nconst a = 1;'),'plain code\nconst a = 1;');
+ for(const path of ['.env','.env.production','config/.npmrc','.netrc','certs/server.pem','keys/app.p8','id_ed25519','storage/credentials.json',
+  'config/secrets.yml','gcp/service-account.json','infra/prod.tfvars','infra/terraform.tfstate','.ssh/config','.aws/credentials','auth.json'])assert.ok(SECRET_FILE.test(path),path);
+ for(const path of ['src/app.js','config/app.php','README.md','src/keyboard.ts','docs/environment.md'])assert.ok(!SECRET_FILE.test(path),path);
+});

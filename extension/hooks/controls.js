@@ -1,5 +1,5 @@
 import {t} from './i18n.js';
-import {loadProjectSettings,saveProjectSettings} from './project-rules.js';
+import {loadProjectSettings,saveProjectSettings,updateProjectSettings} from './project-rules.js';
 import {openRulesPane} from './rules-pane.js';
 import { profileRuntime, bootstrapRuntime, probeRuntime, runtimeReady, hardLawBackup, inspectRuntime } from './runtime.js';
 import { handleCaseCommand } from './court.js';
@@ -9,9 +9,12 @@ import { emit, readProject, quarantineProject } from './events.js';
 import { normalizeGrant, reduceGrants } from './grants.js';
 import { compileRules, evaluate } from './statutes.js';
 import { sentencing } from './sentencing.js';
-import { disciplineState, docket, releaseViolations } from './discipline.js';
+import { disciplineState, docket, docketText, releaseViolations, resetDiscipline } from './discipline.js';
+import { forgetCaches } from './events.js';
+import { refreshStatus } from './status.js';
 import { reduceScores, scoreTable } from './scoring.js';
-import { projectLessons, lessonEffects, lessonTable, shareLessons, unshareLessons, loadLibrary } from './lessons.js';
+import { projectLessons, lessonEffects, lessonTable, shareLessons, unshareLessons, loadLibrary, experimentResults } from './lessons.js';
+import { allProjectScores } from './scoring.js';
 import { ROLES, roleOf } from './roles.js';
 import { reduceReviews, judgeUsage, reviewTable, decideFinding, decideExemplar } from './judge.js';
 
@@ -24,7 +27,7 @@ export function setMasterEnabled(value){masterEnabled=value!==false;}
 const HUMAN = new Set(['composer', 'bridge']);
 // Default mode needs only the first line. The second belongs to the optional
 // hardened runtime and its signed case ledger.
-const USAGE = 'Usage: /arbiter rules | status | mode enforce|observe|off | docket | release <violation-id>|all | citizens | role <agent-type> <role>|auto | lessons [on|off|share <id>|all|unshare <id>|all|library] | judge [on|off] | finding <ref> confirm|dismiss | exemplar <ref> approve|reject | quarantine | verify | cleanup | evidence <event-id>\nHardened runtime only: /arbiter runtime profile|inspect|probe|bootstrap|status | mode hardened <JSON> | grant <JSON> | request <JSON> | grants | revoke <id> | laws | laws approve <JSON> | check <JSON> | record <citizen-id> | verdict <JSON> | appeal <case-id> [JSON] | pardon <case-id> [reason]';
+const USAGE = 'Usage: /arbiter rules | status | mode enforce|observe|off | docket | release <violation-id> [reason] | release all | citizens [all] | role <agent-type> <role>|auto | lessons [on|off|share <id>|all|unshare <id>|all|library|experiment on|off] | judge [on|off] | finding <ref> confirm|dismiss | exemplar <ref> approve|reject | cleanup | purge [all] | quarantine | verify | evidence <event-id> | help\nExperimental hardened runtime: /arbiter runtime profile|inspect|probe|bootstrap|status | mode hardened <JSON> | grant <JSON> | request <JSON> | grants | revoke <id> | laws | laws approve <JSON> | check <JSON> | record <citizen-id> | verdict <JSON> | appeal <case-id> [JSON] | pardon <case-id> [reason]';
 function reply(value) { return { text: typeof value === 'string' ? value : canonical(value) }; }
 function key(ctx) { return `${ctx.projectId}:${ctx.sessionId}`; }
 function trusted(e) { return HUMAN.has(e.origin?.kind); }
@@ -133,8 +136,8 @@ export async function handleCourt($, e) {
   const split = args.indexOf(' ');
   const command = split<0 ? args : args.slice(0,split);
   const body = split<0 ? '' : args.slice(split+1).trim();
-  const mutation = ['off','mode','grant','request','revoke','release','role','finding','exemplar'].includes(command) || (command==='judge' && ['on','off'].includes(body)) || (command==='lessons' && /^(on|off|share|unshare)(\s|$)/.test(body)) || (command==='laws' && body.startsWith('approve')) || ['cleanup','quarantine'].includes(command) || (command==='runtime' && !body.startsWith('profile') && !['status','inspect'].includes(body));
-  if (mutation && !trusted(e)) return reply('Human composer/bridge approval required; plugin, SDK and quoted text cannot grant authority.');
+  const mutation = ['off','mode','grant','request','revoke','release','role','finding','exemplar','purge'].includes(command) || (command==='judge' && ['on','off'].includes(body)) || (command==='lessons' && /^(on|off|share|unshare|experiment)(\s|$)/.test(body)) || (command==='laws' && body.startsWith('approve')) || ['cleanup','quarantine'].includes(command) || (command==='runtime' && !body.startsWith('profile') && !['status','inspect'].includes(body));
+  if (mutation && !trusted(e)) return reply(t('cmd.human'));
   // Emergency switch takes effect even when context or disk is unavailable.
   if (command==='off' || (command==='mode' && body==='off')) emergencyOff=true;
   try {
@@ -146,6 +149,23 @@ export async function handleCourt($, e) {
     }
     if(command==='quarantine')return reply(await quarantineProject($,ctx));
     if(command==='help')return reply(USAGE);
+    if(command==='purge'){
+      if(!['','all'].includes(body))return reply(USAGE);
+      const root=`${ctx.configRoot}/plugins/data/agent-arbiter`;
+      const scope=t(body==='all'?'cmd.purgeAll':'cmd.purgeProject');
+      let answer='';
+      try{answer=await $.ui.ask(t('cmd.purgeAsk',{scope}),[t('cmd.purgeNo'),t('cmd.purgeYes')]);}catch{ /* No answer deletes nothing. */ }
+      if(answer!==t('cmd.purgeYes'))return reply(t('cmd.purgeCancelled'));
+      const targets=body==='all'?[root]:[`${ctx.archiveRoot}/events/${ctx.projectId}`,`${ctx.archiveRoot}/projects/${ctx.projectId}`,
+        ...(ctx.dataRoot!==ctx.archiveRoot?[`${ctx.dataRoot}/events/${ctx.projectId}`]:[])];
+      // Only paths under Arbiter's own data folder, built from a hashed project id.
+      if(!/^[a-f0-9]{64}$/.test(ctx.projectId) || targets.some(path=>!(path===root || path.startsWith(root+'/')) || path.includes('/../')))return reply(t('cmd.purgeFailed',{error:'unexpected path'}));
+      const result=await $.process.run(['/bin/rm','-rf','--',...targets]);
+      forgetCaches();resetDiscipline();emergencyOff=false;enforcedSessions.clear();modes.clear();
+      try{$.ui.status(undefined);}catch{ /* Best effort. */ }
+      return reply(result.exitCode===0?t('cmd.purged',{scope}):t('cmd.purgeFailed',{error:`exit ${result.exitCode}`}));
+    }
+    if(command==='citizens' && body==='all')return reply(await allProjectScores($,ctx));
     if(command==='citizens'){
       const settings=await loadProjectSettings($,ctx);
       const events=(await readProject($,ctx)).events;
@@ -154,62 +174,75 @@ export async function handleCourt($, e) {
     if(['judge','findings','finding','exemplar'].includes(command)){
       const settings=await loadProjectSettings($,ctx);
       if(command==='judge' && ['on','off'].includes(body)){
-        await saveProjectSettings($,ctx,{...settings,judge:body==='on'});
-        return reply(`Judge ${body} for this project.`);
+        await updateProjectSettings($,ctx,latest=>({...latest,judge:body==='on'}));
+        return reply(t('cmd.judgeSwitch',{state:t('cmd.'+body)}));
       }
       const events=(await readProject($,ctx)).events,reviews=reduceReviews(events,ctx.projectId);
       if(command==='finding' || command==='exemplar'){
         const [ref,verb]=body.split(/\s+/);
         const decision={confirm:'confirmed',dismiss:'dismissed',approve:'approved',reject:'rejected'}[verb];
         const evidenceId=command==='finding'?await decideFinding($,ctx,reviews,ref,decision,source):await decideExemplar($,ctx,reviews,ref,decision,source);
-        if(!evidenceId)return reply(command==='finding'?'Usage: /arbiter finding <ref> confirm|dismiss — list refs with /arbiter judge.':'Usage: /arbiter exemplar <ref> approve|reject — list candidates with /arbiter judge.');
-        return reply({ref,decision,evidenceId});
+        if(!evidenceId)return reply(t(command==='finding'?'cmd.findingUsage':'cmd.exemplarUsage'));
+        await refreshStatus($,ctx);
+        return reply(t('cmd.decided',{ref,decision}));
       }
       if(body)return reply(USAGE);
       return reply(reviewTable(reviews,judgeUsage(events,ctx.projectId),settings.judge));
     }
     if(command==='role'){
       const [name,role]=body.split(/\s+/);
-      if(!name || !(role==='auto' || ROLES.includes(role)))return reply('Usage: /arbiter role <agent-type> <'+ROLES.join('|')+'|auto>');
-      const settings=await loadProjectSettings($,ctx),roles={...settings.roles};
-      if(role==='auto')delete roles[name];else roles[name]=role;
-      await saveProjectSettings($,ctx,{...settings,roles});
-      return reply(`Role of ${name}: ${roleOf(name,roles)}${role==='auto'?' (automatic)':''}.`);
+      if(!name || !(role==='auto' || ROLES.includes(role)))return reply(t('cmd.roleUsage',{roles:ROLES.join('|')}));
+      let roles;
+      await updateProjectSettings($,ctx,latest=>{roles={...latest.roles};if(role==='auto')delete roles[name];else roles[name]=role;return {...latest,roles};});
+      return reply(t(role==='auto'?'cmd.roleAuto':'cmd.role',{name,role:roleOf(name,roles)}));
     }
     if(command==='lessons'){
       const settings=await loadProjectSettings($,ctx);
-      if(['on','off'].includes(body)){
-        await saveProjectSettings($,ctx,{...settings,lessons:body==='on'});
-        return reply(`Lessons ${body} for this project.`);
+      if(['experiment on','experiment off'].includes(body)){
+        const on=body.endsWith('on');
+        await updateProjectSettings($,ctx,latest=>({...latest,lessonExperiment:on}));
+        return reply(t('cmd.experimentSwitch',{state:t(on?'cmd.on':'cmd.off')}));
       }
-      if(body==='library')return reply({library:await loadLibrary($,ctx)});
+      if(['on','off'].includes(body)){
+        await updateProjectSettings($,ctx,latest=>({...latest,lessons:body==='on'}));
+        return reply(t('cmd.lessonsSwitch',{state:t('cmd.'+body)}));
+      }
+      if(body==='library'){
+        const library=await loadLibrary($,ctx);
+        return reply(library.length?[t('cmd.libraryHead'),...library.map(entry=>`${entry.id} · ${entry.agentName} (${entry.role}) · ${entry.text}`)].join('\n'):t('cmd.libraryNone'));
+      }
       if(body.startsWith('unshare')){
         const removed=await unshareLessons($,ctx,body.slice('unshare'.length).trim());
-        return reply(removed.length?{removed}:'No shared lesson matches. List them with /arbiter lessons library.');
+        return reply(removed.length?t('cmd.unshared',{count:removed.length}):t('cmd.unshareNone'));
       }
       const lessons=await projectLessons($,ctx,settings);
       if(body.startsWith('share')){
         const wanted=body.slice('share'.length).trim();
         const chosen=wanted==='all'?lessons:lessons.filter(lesson=>wanted.length>=4 && lesson.id.startsWith(wanted));
-        if(!chosen.length)return reply('No lesson matches. List them with /arbiter lessons.');
-        return reply({shared:await shareLessons($,ctx,chosen),library:'every project now teaches these to agents of the same type or role'});
+        if(!chosen.length)return reply(t('cmd.lessonNone'));
+        const added=await shareLessons($,ctx,chosen);
+        return reply(added.length?t('cmd.shared',{count:added.length}):t('cmd.sharedNone'));
       }
       if(body)return reply(USAGE);
-      return reply(lessonTable(lessons,lessonEffects((await readProject($,ctx)).events,ctx.projectId,lessons,await disciplineState($,ctx)),settings.lessons));
+      const events=(await readProject($,ctx)).events,discipline=await disciplineState($,ctx);
+      const experiment=settings.lessonExperiment || events.some(event=>event.kind==='spawn.result' && event.data?.lessonsHeldOut)?experimentResults(events,ctx.projectId,discipline):null;
+      return reply(lessonTable(lessons,lessonEffects(events,ctx.projectId,lessons,discipline),settings.lessons,experiment));
     }
     // Default mode keeps violations, not signed cases: release one here.
     if(command==='release' && !(await loadProjectSettings($,ctx)).hardened){
       const state=await disciplineState($,ctx,true);
       const active=state.violations.filter(record=>record.status==='active');
-      const ids=body==='all'?active.map(record=>record.id):active.filter(record=>body.length>=8 && record.id.startsWith(body)).map(record=>record.id);
-      if(!ids.length)return reply('No active violation matches. Use /arbiter docket to list them, then /arbiter release <violation-id> or /arbiter release all.');
-      const evidenceId=await releaseViolations($,ctx,ids,source);
-      return reply({released:ids,evidenceId});
+      const space=body.indexOf(' '),wanted=space<0?body:body.slice(0,space),reason=space<0?null:body.slice(space+1).trim();
+      const ids=wanted==='all'?active.map(record=>record.id):active.filter(record=>wanted.length>=8 && record.id.startsWith(wanted)).map(record=>record.id);
+      if(!ids.length)return reply(t('cmd.releaseNone'));
+      await releaseViolations($,ctx,ids,source,reason);
+      await refreshStatus($,ctx);
+      return reply(t('cmd.released',{count:ids.length}));
     }
     if(command==='mode' && ['enforce','observe','off'].includes(body) || command==='off'){
       const mode=command==='off'?'off':body;
       const prefs=await loadProjectSettings($,ctx);
-      await saveProjectSettings($,ctx,{...prefs,mode,hardened:false});
+      await updateProjectSettings($,ctx,latest=>({...latest,mode,hardened:false}));
       emergencyOff=false;enforcedSessions.delete(ctx.sessionId);modes.delete(key(ctx));
       return reply({mode,hardened:false,scope:'project'});
     }
@@ -257,6 +290,8 @@ export async function handleCourt($, e) {
       return reply(matches.length===1 ? {...matches[0],integrity} : {found:matches.length>0,variants:matches,integrity});
     }
     const caseAnswer=await handleCaseCommand($,e,ctx,read,command,body);
+    // `docket cases` lists the signed case ledger of the experimental hardened runtime.
+    if (command==='docket' && body!=='cases' && !(await loadProjectSettings($,ctx)).hardened) return reply(docketText(await disciplineState($,ctx,true)));
     if (caseAnswer && command==='docket' && !(await loadProjectSettings($,ctx)).hardened) {
       // Default mode records violations beside any cases from the hardened ledger.
       try { return reply({...JSON.parse(caseAnswer.text),violations:docket(await disciplineState($,ctx,true))}); }

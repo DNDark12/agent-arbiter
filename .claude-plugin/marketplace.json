@@ -10,7 +10,8 @@
     {
       "name": "agent-arbiter",
       "source": "./extension",
-      "description": "Rules, approvals, discipline, scores, lessons and an advisory judge for Claude Code agents."
+      "description": "Rules, approvals, discipline, scores, lessons and an advisory judge for Claude Code agents.",
+      "displayName": "Agent Arbiter"
     }
   ]
 }

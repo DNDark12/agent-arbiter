@@ -237,3 +237,6 @@ export async function quarantineProject($, ctx) {
     paths: issues.filter(issue => issue.quarantined).map(issue => issue.quarantined),
     reports: issues.filter(issue => issue.report).map(issue => issue.report) };
 }
+
+// After the person deletes Arbiter data, nothing cached may bring it back.
+export function forgetCaches() { payloads.clear(); inFlight.clear(); projectCaches.clear(); }

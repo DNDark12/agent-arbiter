@@ -21,7 +21,7 @@ test('native default discipline fines, detains, tells the lead and lets one repo
  expect(seen[1].message).toContain('final report')
  expect(seen[1].message).toContain('Agent Arbiter: this agent broke project rules (user:secret)')
  expect(w.events().filter(e=>e.kind==='discipline.violation').map(e=>e.data.sanction)).toEqual(['fine','detain'])
- expect(JSON.parse((await $.command.run({command:'arbiter',args:'docket'})).text).violations).toHaveLength(2)
+ expect((await $.command.run({command:'arbiter',args:'docket'})).text.split('\n').filter(line=>/ · (fine|detained) /.test(line))).toHaveLength(2)
 })
 
 test('native detained agent type restarts on another model and a detained run cannot spawn',async($,on)=>{

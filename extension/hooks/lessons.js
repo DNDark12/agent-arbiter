@@ -2,10 +2,11 @@
 // same type or role when it starts. A lesson is derived from violations still on
 // the record, so releasing a violation withdraws its lesson. The person can
 // share a lesson with every project; nothing is shared without that step.
+import { t } from './i18n.js';
 import { digest } from './ledger.js';
 import { disciplineState, citizenSummary } from './discipline.js';
 import { loadProjectSettings, listRules } from './project-rules.js';
-import { roleOf } from './roles.js';
+import { roleOf, effectiveRole } from './roles.js';
 import { readProject } from './events.js';
 import { reduceReviews } from './judge.js';
 
@@ -99,15 +100,16 @@ export function lessonEffects(events, projectId, lessons, discipline) {
   return effects;
 }
 
-export function lessonTable(lessons, effects, enabled) {
-  const head = `Agent Arbiter lessons for this project: ${enabled ? 'on' : 'off'} (new agents of the same type or role are told these)`;
-  if (!lessons.length) return `${head}\nNo lessons yet: no violation is on the record.`;
+export function lessonTable(lessons, effects, enabled, experiment = null) {
+  const head = t('tbl.lessonsHead', { state: t(enabled ? 'cmd.on' : 'cmd.off') });
+  const tail = experiment ? [t('tbl.experiment', experiment)] : [];
+  if (!lessons.length) return [head, t('tbl.lessonsNone'), ...tail].join('\n');
   return [head, ...lessons.map(lesson => {
     const effect = effects.get(lesson.id) ?? { taught: 0, repeatsAfter: 0 };
-    return lesson.kind === 'rule' ?
-      `${lesson.id} · ${lesson.agentName} (${lesson.role}) · ${lesson.text} · broken ${lesson.count}× · taught ${effect.taught}× · broken again after teaching ${effect.repeatsAfter}×` :
-      `${lesson.id} · ${lesson.agentName} (${lesson.role}) · ${lesson.kind} · ${lesson.text} · taught ${effect.taught}×`;
-  }), 'Share with every project: /arbiter lessons share <id>|all'].join('\n');
+    const base = { id: lesson.id, agent: lesson.agentName, role: lesson.role, text: lesson.text, taught: effect.taught };
+    return lesson.kind === 'rule' ? t('tbl.lessonRule', { ...base, count: lesson.count, repeats: effect.repeatsAfter }) :
+      t('tbl.lessonOther', { ...base, kind: lesson.kind });
+  }), ...tail, t('tbl.lessonsShare')].join('\n');
 }
 
 export async function projectLessons($, ctx, settings) {
@@ -182,7 +184,28 @@ export async function teachSpawn($, ctx, policy, identity) {
   const settings = await loadProjectSettings($, ctx);
   const summary = citizenSummary(identity);
   if (!settings.lessons || !summary) return policy;
-  const picked = lessonsFor(await projectLessons($, ctx, settings), await loadLibrary($, ctx), summary.name, roleOf(summary.name, settings.roles));
+  const picked = lessonsFor(await projectLessons($, ctx, settings), await loadLibrary($, ctx), summary.name, effectiveRole(summary.name, input.prompt, settings.roles));
   if (!picked.length) return policy;
+  // The control group: with the experiment on, one run in five gets no lessons.
+  if (settings.lessonExperiment && parseInt((await digest(`${input.tool_use_id ?? crypto.randomUUID()}`)).slice(0, 8), 16) % 5 === 0) {
+    return { ...policy, lessonsHeldOut: true };
+  }
   return { ...policy, input: { ...input, prompt: input.prompt + lessonBlock(picked) }, lessons: picked.map(lesson => lesson.id) };
+}
+
+// Violations per run, for runs that were taught lessons and runs held out.
+export function experimentResults(events, projectId, discipline) {
+  const groups = { taught: new Set(), held: new Set() };
+  for (const event of Array.isArray(events) ? events : []) {
+    if (event?.projectId !== projectId || event.kind !== 'spawn.result' || event.data?.status !== 'started' || typeof event.data.childAgentId !== 'string') continue;
+    const key = `${event.sessionId}:${event.data.childAgentId}`;
+    if (event.data.lessonsHeldOut) groups.held.add(key);
+    else if (Array.isArray(event.data.lessons) && event.data.lessons.length) groups.taught.add(key);
+  }
+  const violations = group => (discipline?.violations ?? []).filter(record => record.status !== 'released' && record.agentId &&
+    group.has(`${record.sessionId}:${record.agentId}`)).length;
+  const rate = (count, runs) => runs ? (count / runs).toFixed(2) : '-';
+  const taughtViolations = violations(groups.taught), heldViolations = violations(groups.held);
+  return { taught: groups.taught.size, held: groups.held.size, taughtViolations, heldViolations,
+    taughtRate: rate(taughtViolations, groups.taught.size), heldRate: rate(heldViolations, groups.held.size) };
 }

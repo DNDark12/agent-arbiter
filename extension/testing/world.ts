@@ -1,7 +1,7 @@
 import { mock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-export function world(on: On, failWrites: boolean | ((text: string) => boolean) = false, transcript: unknown = [], settings: () => Record<string, unknown> = () => ({}), failLists: () => boolean = () => false) {
+export function world(on: On, failWrites: boolean | ((text: string) => boolean) = false, transcript: unknown = [], settings: () => Record<string, unknown> = () => ({}), failLists: () => boolean = () => false, env: Record<string, string> = {}) {
   const files = new Map<string, string>()
   const warnings: string[] = []
   mock.store(on)
@@ -14,7 +14,7 @@ export function world(on: On, failWrites: boolean | ((text: string) => boolean) 
   on('session.model', () => ({ value: 'resolved-model' }))
   on('session.turns', () => ({ value: 2 }))
   on('session.messages', () => ({ value: transcript }))
-  on('env.get', (_$, e) => ({ value: e.name === 'HOME' ? '/fixture-home' : undefined }))
+  on('env.get', (_$, e) => ({ value: Object.hasOwn(env, e.name) ? env[e.name] : e.name === 'HOME' ? '/fixture-home' : undefined }))
   on('fs.exists', (_$, e) => ({ value: files.has(e.path) || [...files.keys()].some(k => k.startsWith(e.path + '/')) }))
   on('fs.write', (_$, e) => {
     if (typeof failWrites==='function'?failWrites(e.text):failWrites) return { deny: 'fixture disk unavailable' }
@@ -40,7 +40,13 @@ export function world(on: On, failWrites: boolean | ((text: string) => boolean) 
       if (files.has(e.argv[2])) exitCode = 1
       else files.set(e.argv[2], files.get(e.argv[1]) ?? '')
     } else if (e.argv[0] === '/bin/mv') {files.set(e.argv[3],files.get(e.argv[2]) ?? '');files.delete(e.argv[2])}
-    else if (e.argv[0] === '/bin/rm') { for (const path of e.argv.slice(1)) if (!path.startsWith('-')) files.delete(path) }
+    else if (e.argv[0] === '/bin/rm') {
+      const recursive = e.argv.slice(1).some(arg => /^-[a-z]*r/.test(arg))
+      for (const path of e.argv.slice(1)) if (!path.startsWith('-')) {
+        files.delete(path)
+        if (recursive) for (const key of [...files.keys()]) if (key.startsWith(path + '/')) files.delete(key)
+      }
+    }
     else if (e.argv[0] === 'git') {
       if (e.argv.includes('rev-parse')) stdout = 'fixture-head\n'
       else if (e.argv.includes('status')) stdout = ' M src/file.js\0'

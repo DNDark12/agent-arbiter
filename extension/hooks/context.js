@@ -13,6 +13,16 @@ export async function configRoot($) {
   return path.replace(/\/+$/, '');
 }
 
+// Arbiter relies on POSIX paths and on /bin/ln, /bin/mv and /bin/rm for atomic
+// publication: macOS and Linux. Elsewhere it stays inactive instead of half working.
+export async function platformSupported($) {
+  try {
+    if (/windows/i.test(String(await $.env.get('OS') ?? ''))) return false;
+    await configRoot($);
+    return true;
+  } catch { return false; }
+}
+
 export async function storageRoot($) {
   return `${await configRoot($)}/plugins/data/agent-arbiter/v1`;
 }

@@ -2,6 +2,7 @@ import {analyzeBash} from './bash-risk.js';
 import {loadProjectSettings,matchRules,COMMAND_ACTION} from './project-rules.js';
 import {disciplineState,runRecord,recordViolation,rememberRefusal,refusedBefore,actionKeys,takeReport,citizenOf,REPORT_LIMIT,replacementHeld,replacementPending} from './discipline.js';
 import {t,ruleLabel} from './i18n.js';
+import {refreshStatus} from './status.js';
 import {redact} from './privacy.js';
 import {classifyTool} from './action.js';
 import {currentEnforcement,approvedRules,checkCurrentPolicy} from './controls.js';
@@ -194,6 +195,7 @@ function sanctionMessage(record,rules){
 }
 async function violate($,ctx,event,decision,receipt,reason,requestId){
   const record=await recordViolation($,ctx,event,{ruleIds:receipt.ruleIds,reason,severe:decision.severe,detail:receipt.detail,requestId});
+  if(record.sanction==='detain')void refreshStatus($,ctx);
   return sanctionMessage(record,decision.rules);
 }
 async function enforceDefault($,ctx,event,state,requestId){

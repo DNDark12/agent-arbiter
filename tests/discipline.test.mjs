@@ -135,9 +135,11 @@ test('release frees the run and the agent type; only a person can release',async
  await enforceTool(w.$,ctx,write(w,'dev-1'),{},'one');
  assert.match((await w.command('release all','sdk')).text,/Human composer/);
  assert.equal((await discipline.disciplineState(w.$,ctx,true)).violations[0].status,'active');
- const listed=JSON.parse((await w.command('docket')).text);
- assert.deepEqual(listed.violations.map(record=>[record.who,record.sanction,record.status]),[['developer@claude-sonnet-5-5','detain','active']]);
- assert.equal(JSON.parse((await w.command('release '+listed.violations[0].id.slice(0,12))).text).released.length,1);
+ const listed=(await w.command('docket')).text.split('\n');
+ assert.equal(listed.length,2);
+ assert.match(listed[1],/^([a-f0-9]{12}) · \d{4}-\d{2}-\d{2} \d{2}:\d{2} · developer@claude-sonnet-5-5 · detained \(-30\) · user:secret · in effect$/);
+ assert.match((await w.command('release '+listed[1].slice(0,12)+' The write was approved by me')).text,/^Released 1 violation/);
+ assert.match((await w.command('docket')).text,/released: The write was approved by me$/);
  assert.equal(await enforceTool(w.$,ctx,{tool:'Read',file_path:w.root+'/a',agentId:'dev-1'},{},'two'),null);
  assert.equal((await enforceSpawn(w.$,ctx,{subagentType:'developer',prompt:'x'},identity(null))).input.model,undefined);
  assert.match((await w.command('release all')).text,/No active violation/);

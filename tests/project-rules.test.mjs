@@ -11,14 +11,14 @@ async function rules() { return import('../extension/hooks/project-rules.js'); }
 async function fixture(t) {
  const archiveRoot=await fs.mkdtemp(join(tmpdir(),'arbiter-rules-'));t.after(()=>fs.rm(archiveRoot,{recursive:true,force:true}));
  const ctx={archiveRoot,projectId:'fixture-project'};
- const $={process:{run:async argv=>{try{return {exitCode:0,...await exec(argv[0],argv.slice(1))}}catch(e){if(typeof e.code!=='number')throw e;return {exitCode:e.code}}}},fs:{exists:async p=>{try{await fs.stat(p);return true}catch(e){if(e.code==='ENOENT')return false;throw e}},read:p=>fs.readFile(p,'utf8'),write:async(p,s)=>{await fs.mkdir(dirname(p),{recursive:true});await fs.writeFile(p,s)}}};
+ const $={clock:{sleep:ms=>new Promise(resolve=>setTimeout(resolve,ms))},process:{run:async argv=>{try{return {exitCode:0,...await exec(argv[0],argv.slice(1))}}catch(e){if(typeof e.code!=='number')throw e;return {exitCode:e.code}}}},fs:{exists:async p=>{try{await fs.stat(p);return true}catch(e){if(e.code==='ENOENT')return false;throw e}},read:p=>fs.readFile(p,'utf8'),write:async(p,s)=>{await fs.mkdir(dirname(p),{recursive:true});await fs.writeFile(p,s)}}};
  return {$,ctx,path:join(archiveRoot,'projects','fixture-project','preferences.json')};
 }
 
 test('fresh projects enforce built-ins without authentication or setup',async t=>{
  const {loadProjectSettings,listRules,matchRules}=await rules();const {$,ctx}=await fixture(t);
  const settings=await loadProjectSettings($,ctx);
- assert.deepEqual(settings,{mode:'enforce',hardened:false,disabledRules:[],enabledRules:[],rules:[],lessons:true,judge:true,roles:{}});
+ assert.deepEqual(settings,{mode:'enforce',hardened:false,disabledRules:[],enabledRules:[],rules:[],lessons:true,judge:true,lessonExperiment:false,roles:{}});
  assert.equal(listRules(settings).length,13);
  assert.equal(matchRules([{action:'git.force-push',target:'origin/main'}],settings).effect,'ask');
  // Arbiter data is denied; Claude settings and agent definitions only ask.
@@ -158,4 +158,18 @@ test('custom CRUD retains identity and cannot mutate builtins or overwrite stale
  assert.throws(()=>m.deleteUserRule(settings,'git.push'),/custom|user|built/i);
  assert.throws(()=>m.updateUserRule(changed,original.id,{effect:'jail'},original),/changed|stale/i);
  assert.throws(()=>m.deleteUserRule(changed,original.id,original),/changed|stale/i);
+});
+
+test('two sessions changing rules at once both keep their change; a stale lock is abandoned',async t=>{
+ const {loadProjectSettings,updateProjectSettings,createUserRule}=await rules();const {$,ctx,path}=await fixture(t);
+ $.fs.stat=async p=>{const s=await fs.stat(p);return {kind:'file',mtimeMs:s.mtimeMs,isLink:false}};
+ const add=n=>updateProjectSettings($,ctx,latest=>createUserRule(latest,{id:`user:r${n}`,action:'file.write',target:`dir${n}/**`,effect:'ask'}));
+ await Promise.all(Array.from({length:8},(_,n)=>add(n)));
+ assert.deepEqual((await loadProjectSettings($,ctx)).rules.map(rule=>rule.id).sort(),Array.from({length:8},(_,n)=>`user:r${n}`).sort());
+ const leftovers=(await fs.readdir(dirname(path))).filter(name=>name.includes('.lock'));
+ assert.deepEqual(leftovers,[]);
+ // A lock left by a crashed session is taken over after ten seconds.
+ await fs.writeFile(path+'.lock','x');const old=new Date(Date.now()-60000);await fs.utimes(path+'.lock',old,old);
+ await add(9);
+ assert.ok((await loadProjectSettings($,ctx)).rules.some(rule=>rule.id==='user:r9'));
 });

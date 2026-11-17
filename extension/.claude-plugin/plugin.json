@@ -1,11 +1,31 @@
 {
   "name": "agent-arbiter",
-  "version": "0.11.0",
-  "description": "Project rules, approvals, agent discipline, scores, lessons and an advisory judge for Claude Code; optional protected runtime.",
+  "displayName": "Agent Arbiter",
+  "version": "1.0.0",
+  "description": "Rules and accountability for Claude Code agents: approvals before risky actions, sanctions for rule breaks, agent scores, lessons and an advisory judge.",
   "author": {
-    "name": "DNDark"
+    "name": "DNDark",
+    "email": "dnq.exorcist@gmail.com",
+    "url": "https://github.com/DNDark12"
   },
+  "homepage": "https://github.com/DNDark12/agent-arbiter",
+  "repository": "https://github.com/DNDark12/agent-arbiter",
   "license": "MIT",
+  "keywords": [
+    "agents",
+    "subagents",
+    "guardrails",
+    "permissions",
+    "rules",
+    "review",
+    "safety"
+  ],
+  "engines": {
+    "claude-code": ">=2.1.325"
+  },
+  "documentationUrl": "https://github.com/DNDark12/agent-arbiter#readme",
+  "supportUrl": "https://github.com/DNDark12/agent-arbiter/issues",
+  "icon": "./icon.png",
   "userConfig": {
     "enabled": {
       "type": "boolean",
