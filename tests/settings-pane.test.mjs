@@ -50,6 +50,7 @@ test('help directs normal users to the pane while preserving advanced command he
 
 test('pane exposes global config, rejects locked/denied writes, and applies language without losing project preferences',async t=>{
  const p=await pane(t);assert.ok(p.find('global-enabled'));assert.ok(p.find('global-language'));
+ assert.equal(p.find('global-language').props.options.find(option=>option.value==='vi').label,'Tiếng Việt');
  p.configs.get('agent-arbiter.enabled').isLocked=true;await p.draw();await p.press('global-enabled');
  assert.equal(p.configs.get('agent-arbiter.enabled').value,true);assert.match(p.text(),/locked/i);
  p.configs.get('agent-arbiter.enabled').isLocked=false;
@@ -57,6 +58,13 @@ test('pane exposes global config, rejects locked/denied writes, and applies lang
  await p.press('global-enabled');assert.match(p.text(),/managed policy/);assert.equal(p.configs.get('agent-arbiter.enabled').value,true);
  p.$.config.set=set;await p.select('global-language','vi');assert.match(p.text(),/Bảng điều khiển|Chỉ ghi nhận/);
  assert.equal((await loadProjectSettings(p.$,p.ctx)).mode,'observe');
+});
+
+test('surfaces without plugin configuration rows explain the limitation and retain project controls',async t=>{
+ const p=await pane(t);p.configs.clear();await p.draw();
+ assert.match(p.text(),/Global options are unavailable/);
+ assert.ok(p.find('court-mode'));assert.equal(p.find('global-enabled'),undefined);
+ await p.select('court-mode','enforce');assert.equal((await loadProjectSettings(p.$,p.ctx)).mode,'enforce');
 });
 
 test('turning enforcement back on in the pane clears emergency off and changes only this project',async t=>{

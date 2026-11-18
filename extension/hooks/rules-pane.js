@@ -303,11 +303,12 @@ async function citizensView($,h,ctx,state,settings){
 async function settingsView($,h,ctx,state,settings,failures){
   let configs=[],configError='';try{configs=await globalConfig($);}catch{configError=t('settings.configUnavailable');}
   const enabled=configs.find(row=>row.key==='agent-arbiter.enabled'),language=configs.find(row=>row.key==='agent-arbiter.language');
+  if(!enabled || !language)configError=t('settings.configUnavailable');
   if(!state.diagnostics){try{state.diagnostics=await diagnostics($,ctx,failures());}catch(error){configError=errorText(error);}}
   return h.Box({flexDirection:'column',gap:1,children:[
     h.Text({bold:true,children:t('settings.global')}),
     ...(enabled?[h.Button({key:'global-enabled',label:t('settings.enabled')+': '+t(enabled.value?'pane.toggle.on':'pane.toggle.off')+(enabled.isLocked?' · '+t('settings.locked'):''),onPress:()=>runAction($,ctx,async()=>{await changeGlobalConfig($,enabled.key,!enabled.value);await refreshStatus($,ctx);})})]:[]),
-    ...(language?[h.Select({key:'global-language',label:t('pane.language')+(language.isLocked?' · '+t('settings.locked'):''),value:language.value,options:['auto','en','vi'].map(value=>({value,label:value==='auto'?t('settings.automatic'):t('role.'+value)==='vi'?'Tiếng Việt':'English'})),onSelect:value=>runAction($,ctx,async()=>{await changeGlobalConfig($,language.key,value);})})]:[]),
+    ...(language?[h.Select({key:'global-language',label:t('pane.language')+(language.isLocked?' · '+t('settings.locked'):''),value:language.value,options:['auto','en','vi'].map(value=>({value,label:value==='auto'?t('settings.automatic'):value==='vi'?'Tiếng Việt':'English'})),onSelect:value=>runAction($,ctx,async()=>{await changeGlobalConfig($,language.key,value);})})]:[]),
     ...(configError?[h.Text({children:configError})]:[]),
     h.Text({bold:true,children:t('settings.project')}),
     h.Select({key:'court-mode',label:t('pane.mode'),value:settings.mode,options:['enforce','observe','off'].map(value=>({value,label:t('pane.modeLabel.'+value)})),onSelect:value=>runAction($,ctx,async()=>{await changeProjectMode($,ctx,value);})}),
