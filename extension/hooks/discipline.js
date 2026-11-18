@@ -28,7 +28,7 @@ const POINTS = { warning: 0, fine: FINE_POINTS, detain: DETAIN_POINTS };
 const snapshots = new Map();
 const localViolations = new Map();
 const localRefusals = new Map();
-const localReleases = new Set();
+const localReleases = new Map();
 const citizens = new Map();
 const reported = new Set();
 const spawnNotes = new Map();
@@ -134,7 +134,7 @@ export async function disciplineState($, ctx, fresh = false) {
   for (const record of localViolations.get(ctx.projectId) ?? []) {
     if (!state.violations.some(known => known.id === record.id)) state.violations.push({ ...record });
   }
-  for (const record of state.violations) if (localReleases.has(record.id)) record.status = 'released';
+  for (const record of state.violations) if (localReleases.has(record.id)) { record.status = 'released'; record.releaseReason = localReleases.get(record.id) ?? record.releaseReason; }
   state.refused.push(...(localRefusals.get(ctx.projectId) ?? []));
   for (const [key, summary] of citizens) if (!state.bindings.has(key)) state.bindings.set(key, summary);
   snapshots.set(ctx.projectId, { at: now, state });
@@ -193,7 +193,7 @@ export async function releaseViolations($, ctx, violationIds, source, reason = n
   const persisted = ids.filter(id => !id.startsWith('local:'));
   const why = typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 200) : null;
   if (persisted.length) evidenceId = await emit($, ctx, null, 'discipline.released', crypto.randomUUID(), { violationIds: persisted, source, ...(why ? { reason: why } : {}) });
-  for (const id of ids) localReleases.add(id);
+  for (const id of ids) localReleases.set(id,why);
   snapshots.delete(ctx.projectId);
   return evidenceId;
 }

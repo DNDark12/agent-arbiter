@@ -21,7 +21,7 @@ In a Claude Code session, run these commands **one at a time**. Add the marketpl
 /plugin install agent-arbiter@agent-arbiter
 ```
 
-Choose an install scope when prompted. After installation, start a new session and run `/arbiter status` to check that the plugin loaded.
+Choose an install scope when prompted. After installation, start a new session and run `/arbiter` to open its control panel.
 
 From a terminal, use the equivalent commands:
 
@@ -44,17 +44,31 @@ Requires Claude Code 2.1.325 or later, on macOS or Linux.
 
 ## Usage
 
-| Command | Purpose |
+Open **`/arbiter`**. Ordinary configuration and operations are available in one pane:
+
+| Tab | What you can do |
 |---|---|
-| `/arbiter rules` | Open the pane: rules, violations, agents, settings |
-| `/arbiter mode enforce\|observe\|off` | Set the mode for the project |
-| `/arbiter docket` | List violations |
-| `/arbiter release <id> [reason]` | Release a violation |
-| `/arbiter citizens [all]` | Show agent scores for this project or all projects |
-| `/arbiter lessons` | Show lessons and how well they work |
-| `/arbiter judge` | Show reviews and pending findings |
-| `/arbiter purge [all]` | Delete Arbiter's data |
-| `/arbiter help` | List every command |
+| **Settings** | Global enable/language, project mode, judge, lessons, comparison group, ledger status and maintenance |
+| **Rules** | Switch system rules on/off; create, edit and delete custom rules; search and filter |
+| **Violations** | Filter and inspect violations; release one or all with a reason and confirmation |
+| **Agents** | Project/all-project scores, project role overrides, lessons/shared library, and judge decisions |
+
+Global enable and language apply across projects on this computer. Mode, rules, judge, lessons and roles are saved per project. The pane shows when a global disable makes a project's rules inactive.
+
+Maintenance actions explain their scope and ask for confirmation. Deleting data also opens an approval dialog. Resetting rules keeps judge, lesson and role preferences, along with violation history.
+
+Existing commands still work as optional shortcuts. `/arbiter rules` opens Rules directly; `/arbiter off` is the emergency switch. Use `/arbiter help commands` for the command list and `/arbiter help advanced` for the experimental hardened runtime.
+
+## Update
+
+From a terminal, refresh the marketplace before updating the plugin:
+
+```sh
+claude plugin marketplace update agent-arbiter
+claude plugin update agent-arbiter@agent-arbiter
+```
+
+Start a new Claude Code session after updating. Existing project preferences and Arbiter data are kept.
 
 ## Data and privacy
 

@@ -77,7 +77,7 @@ export function scoreTable(rows) {
 }
 
 // One row per agent type and model across every project on this machine.
-export async function allProjectScores($, ctx) {
+export async function allProjectScoreRows($, ctx) {
   const base = `${ctx.archiveRoot}/events`, merged = new Map();
   let projects = 0;
   if (await $.fs.exists(base)) {
@@ -101,5 +101,10 @@ export async function allProjectScores($, ctx) {
   const rows = [...merged.values()].map(({ qualityTotal, ...row }) => ({ ...row, trust: Math.max(0, BASE_TRUST - row.points),
     quality: row.reviews ? Math.round(qualityTotal / row.reviews) : null }))
     .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : (left.model ?? '') < (right.model ?? '') ? -1 : 1);
+  return {rows,projects};
+}
+
+export async function allProjectScores($,ctx) {
+  const {rows,projects}=await allProjectScoreRows($,ctx);
   return rows.length ? `${t('tbl.scoresAllHead', { projects })}\n${scoreTable(rows).split('\n').slice(1).join('\n')}` : t('tbl.scoresNone');
 }

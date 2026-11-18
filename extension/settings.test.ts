@@ -1,0 +1,66 @@
+import {test,expect} from 'claude-code/testing'
+import {world} from './testing/world'
+import {digest} from './hooks/ledger.js'
+
+const pref=async()=>'/fixture-home/.claude/plugins/data/agent-arbiter/v1/projects/'+await digest('/fixture')+'/preferences.json'
+const mount=($:any,surface:string)=>$.ui.mount({plugin:'agent-arbiter',surface,component:'Pane',requestId:'arbiter-rules',props:{title:'Agent Arbiter',isFocused:true,bodyColumns:64,placement:'inline'}})
+
+for(const surface of ['terminal','desktop'] as const){
+ test(`one settings pane opens from bare arbiter, changes project options and language on ${surface}`,async($,on)=>{
+  const w=world(on);on('ui.open',()=>({value:{isPlaced:true}}))
+  expect((await $.command.run({command:'arbiter',args:''})).text).toContain('panel opened')
+  const ui=await mount($,surface),path=await pref()
+  expect(await ui.find({key:'court-mode'})).toBeDefined()
+  expect(await ui.find({key:'global-language'})).toBeDefined()
+  await ui.select({key:'court-mode',value:'off'})
+  await ui.select({key:'court-mode',value:'enforce'})
+  expect(JSON.parse(w.files.get(path)!).mode).toBe('enforce')
+  await ui.press({key:'toggle-judge'});await ui.press({key:'toggle-lessons'});await ui.press({key:'toggle-experiment'})
+  expect(JSON.parse(w.files.get(path)!)).toMatchObject({judge:false,lessons:false,lessonExperiment:true})
+  await ui.select({key:'global-language',value:'vi'})
+  expect((await ui.find({text:'Project hiện tại',exact:true}))?.text).toContain('Project hiện tại')
+  await ui.select({key:'global-language',value:'en'})
+  await ui.press({key:'global-enabled'})
+  expect((await ui.find({text:'Disabled globally',exact:false}))?.text).toContain('Disabled globally')
+  await ui.press({key:'global-enabled'})
+  await ui.press({key:'show-maintenance'})
+  await ui.press({key:'reset-rules'});await ui.press({key:'cancel-confirm'})
+  expect(JSON.parse(w.files.get(path)!).judge).toBe(false)
+  await ui.press({key:'reset-rules'});await ui.press({key:'confirm-reset'})
+  expect(JSON.parse(w.files.get(path)!)).toMatchObject({judge:false,lessons:false,lessonExperiment:true,rules:[]})
+  await ui.unmount()
+  const reopened=await mount($,surface)
+  expect((await reopened.find({key:'toggle-judge'}))?.text).toContain('Off')
+  await reopened.unmount()
+ })
+}
+
+test('native pane release-all requires confirmation and keeps the release reason',async($,on)=>{
+ const w=world(on);on('ui.open',()=>({value:{isPlaced:true}}));on('tool.call',()=>({result:'ran'}))
+ w.files.set(await pref(),JSON.stringify({rules:[{id:'user:x',action:'file.write',target:'secret/**',effect:'deny'}]}))
+ await $.tool.call({tool:'Write',agentId:'one',tool_use_id:'v1',file_path:'/fixture/secret/a',content:'x'})
+ await $.tool.call({tool:'Write',agentId:'two',tool_use_id:'v2',file_path:'/fixture/secret/b',content:'x'})
+ await $.command.run({command:'arbiter',args:''});const ui=await mount($,'desktop')
+ await ui.press({key:'tab-violations'});await ui.press({key:'release-all'})
+ expect(w.events().filter(e=>e.kind==='discipline.released')).toHaveLength(0)
+ await ui.press({key:'cancel-confirm'});await ui.press({key:'release-all'})
+ await ui.input({key:'release-reason',text:'Approved after checking scope'})
+ await ui.press({key:'confirm-release-all'})
+ const released=w.events().filter(e=>e.kind==='discipline.released')
+ expect(released).toHaveLength(1);expect(released[0].data.violationIds).toHaveLength(2)
+ expect(released[0].data.reason).toBe('Approved after checking scope')
+ expect(released[0].data.source.origin).toBe('ui')
+ await ui.unmount()
+})
+
+test('native maintenance cancellation does not delete user data or run a privileged command',async($,on)=>{
+ const w=world(on);on('ui.open',()=>({value:{isPlaced:true}}))
+ w.files.set(await pref(),JSON.stringify({mode:'off',judge:false}))
+ await $.command.run({command:'arbiter',args:''});const ui=await mount($,'desktop')
+ await ui.press({key:'show-maintenance'});await ui.press({key:'purge-project'})
+ await ui.press({key:'cancel-confirm'})
+ expect(JSON.parse(w.files.get(await pref())!).mode).toBe('off')
+ expect(JSON.parse(w.files.get(await pref())!).judge).toBe(false)
+ expect((await $.command.run({command:'arbiter',args:'purge all'})).text).toContain('Human composer')
+ await ui.unmount()
+})

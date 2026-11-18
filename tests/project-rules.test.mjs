@@ -80,7 +80,7 @@ test('native rules pane uses current settings and reports failures without stale
  const e={component:'Pane',requestId:'arbiter-rules',surface:'desktop',props:{}};
  let nodes;const draw=async()=>{nodes=flatten(await render($,e,()=>null));};
  const press=async key=>{await nodes.find(n=>n.props?.key===key).props.onPress();await draw();};
- await draw();assert.ok(nodes.find(n=>n.props?.key==='tab-settings'));
+ await draw();assert.ok(nodes.find(n=>n.props?.key==='tab-settings'));await press('tab-rules');
  const toggle=nodes.find(n=>n.props?.key==='toggle:fs.remove');
  await saveProjectSettings($,ctx,{mode:'observe',rules:[{id:'user:external',action:'file.write',target:'secret/**',effect:'deny'}]});
  await toggle.props.onPress();let saved=await loadProjectSettings($,ctx);

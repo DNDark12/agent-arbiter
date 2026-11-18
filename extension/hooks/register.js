@@ -71,12 +71,12 @@ async function summary($, cleanup = false) {
 export const register = (on, options = {}) => {
   setMasterEnabled(options.enabled);
   setLanguage(options.language);
-  registerRulesPane(on);
+  registerRulesPane(on,()=>failures);
   on('session.start', async ($, e, next) => {
     try { if (!['en', 'vi'].includes(options.language)) setLanguage('auto', await $.env.get('LC_ALL') || await $.env.get('LANG') || ''); }
     catch { /* English stays the fallback. */ }
     try {
-      await $.command.register({ name: 'arbiter', description: 'Manage project rules and inspect Arbiter evidence', argumentHint: 'rules | status | mode | quarantine | docket | runtime | off', immediate: true });
+      await $.command.register({ name: 'arbiter', description: 'Open Agent Arbiter settings and controls', argumentHint: 'open panel | off | help', immediate: true });
       if (!await collecting($)) return next(e);
       const ctx = await context($);
       await emit($, ctx, null, 'session.start', boot, {
@@ -251,7 +251,7 @@ export const register = (on, options = {}) => {
     if (!await platformReady($)) return { text: UNSUPPORTED() };
     const answer = await handleCourt($, e);
     if (answer) return answer;
-    if (!['', 'status', 'verify', 'cleanup'].includes(e.args.trim())) return { text: 'Usage: /arbiter rules | status | mode enforce|observe|off | docket | release <violation-id>|all | quarantine | verify | cleanup | help' };
+    if (!['', 'status', 'verify', 'cleanup'].includes(e.args.trim())) return { text: t('settings.help') };
     try { return { text: await summary($, e.args.trim() === 'cleanup') }; }
     catch { await warn($); return { text: 'Agent Arbiter: ledger unavailable; no integrity result can be reported.' }; }
   });

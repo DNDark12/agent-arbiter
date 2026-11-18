@@ -9,6 +9,7 @@ for(const surface of ['terminal','desktop'] as const){
   const w=world(on);const path=await pref();on('ui.open',()=>({value:{isPlaced:true}}))
   const current=()=>JSON.parse(w.files.get(path) || '{"rules":[],"disabledRules":[]}')
   expect((await $.command.run({command:'arbiter',args:'rules'})).text).toContain('Rules panel opened');const ui=await mount($,surface)
+  await ui.press({key:'tab-rules'})
   expect(await ui.find({key:'tab-rules'})).toBeDefined()
   expect(await ui.find({key:'rule-action'})).toBeUndefined()
   expect(await ui.find({key:'court-mode'})).toBeUndefined()
@@ -38,7 +39,7 @@ for(const surface of ['terminal','desktop'] as const){
  })
 }
 test('pane exposes persistence failures and preserves unsaved editor input',async($,on)=>{
- world(on,true);const ui=await mount($,'desktop');await ui.press({key:'new-rule'})
+ world(on,true);const ui=await mount($,'desktop');await ui.press({key:'tab-rules'});await ui.press({key:'new-rule'})
  await ui.input({key:'rule-target',text:'private/**'});await ui.press({key:'add-rule'})
  expect((await ui.find({text:'Could not save',exact:false}))?.text).toContain('Could not save')
  expect(await ui.find({key:'rule-target'})).toBeDefined();await ui.unmount()

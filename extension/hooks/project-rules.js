@@ -80,8 +80,9 @@ export async function loadProjectSettings($, ctx) {
   // Read each time: changes made by another session must take effect immediately,
   // even when the file's size and filesystem timestamp have not changed.
   const text = await $.fs.read(path);
-  if (typeof text !== 'string' || text.length > MAX_BYTES) throw new Error('Project preferences exceed size limit');
-  return validate(JSON.parse(text));
+  if (typeof text !== 'string' || text.length > MAX_BYTES) throw Object.assign(new Error('Project preferences exceed size limit'),{code:'ARBITER_INVALID_PREFERENCES'});
+  try{return validate(JSON.parse(text));}
+  catch(error){error.code='ARBITER_INVALID_PREFERENCES';throw error;}
 }
 
 export async function saveProjectSettings($, ctx, settings) {
@@ -109,7 +110,7 @@ async function pause($, ms) {
 // Read, edit and write the preferences under a lock shared by every session, so
 // two sessions changing rules at once never lose either change. The lock is a
 // hard link, created only if absent; a lock older than ten seconds is abandoned.
-export async function updateProjectSettings($, ctx, edit) {
+async function editProjectSettings($, ctx, edit, recoverInvalid=false) {
   const path = settingsPath(ctx), lock = `${path}.lock`, mine = `${lock}.${crypto.randomUUID()}`;
   await $.fs.write(mine, String(Date.now()));
   try {
@@ -121,9 +122,22 @@ export async function updateProjectSettings($, ctx, edit) {
       if (attempt >= LOCK_TRIES) throw new Error('Rules are being changed in another session; try again.');
       await pause($, 50);
     }
-    try { return await saveProjectSettings($, ctx, edit(await loadProjectSettings($, ctx))); }
+    try {
+      let latest;
+      try{latest=await loadProjectSettings($,ctx);}
+      catch(error){if(!recoverInvalid || error.code!=='ARBITER_INVALID_PREFERENCES')throw error;latest=validate({});}
+      return await saveProjectSettings($,ctx,edit(latest));
+    }
     finally { await $.process.run(['/bin/rm', '-f', lock]); }
   } finally { await $.process.run(['/bin/rm', '-f', mine]); }
+}
+
+export async function updateProjectSettings($,ctx,edit){return editProjectSettings($,ctx,edit);}
+
+// Reset only rules under the same cross-session lock. A real IO failure never
+// authorizes replacing valid, unread preferences with defaults.
+export async function resetProjectRules($,ctx){
+  return editProjectSettings($,ctx,latest=>({...latest,disabledRules:[],enabledRules:[],rules:[]}),true);
 }
 
 function enabled(rule, settings) {

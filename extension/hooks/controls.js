@@ -9,8 +9,10 @@ import { emit, readProject, quarantineProject } from './events.js';
 import { normalizeGrant, reduceGrants } from './grants.js';
 import { compileRules, evaluate } from './statutes.js';
 import { sentencing } from './sentencing.js';
-import { disciplineState, docket, docketText, releaseViolations, resetDiscipline } from './discipline.js';
-import { forgetCaches } from './events.js';
+import { disciplineState, docket, docketText, releaseViolations } from './discipline.js';
+import {changeProjectMode,purgeData} from './panel-actions.js';
+import {modes,enforcedSessions,courtDisabled,setEmergencyOff,emergencyStopped} from './control-state.js';
+export {setMasterEnabled,courtDisabled,enforcementArmed} from './control-state.js';
 import { refreshStatus } from './status.js';
 import { reduceScores, scoreTable } from './scoring.js';
 import { projectLessons, lessonEffects, lessonTable, shareLessons, unshareLessons, loadLibrary, experimentResults } from './lessons.js';
@@ -18,12 +20,7 @@ import { allProjectScores } from './scoring.js';
 import { ROLES, roleOf } from './roles.js';
 import { reduceReviews, judgeUsage, reviewTable, decideFinding, decideExemplar } from './judge.js';
 
-const modes = new Map();
-const enforcedSessions = new Map();
 const staleSources = new Set();
-let emergencyOff = false;
-let masterEnabled = true;
-export function setMasterEnabled(value){masterEnabled=value!==false;}
 const HUMAN = new Set(['composer', 'bridge']);
 // Default mode needs only the first line. The second belongs to the optional
 // hardened runtime and its signed case ledger.
@@ -37,16 +34,14 @@ function modeFrom(events, ctx) {
   const mode=entries.at(-1)?.data.mode;
   return mode==='off'?'off':ctx.signer && mode==='enforce'?'enforce':'observe';
 }
-export function courtDisabled(){return !masterEnabled || emergencyOff;}
-export function enforcementArmed() { return enforcedSessions.size>0 && !emergencyOff; }
 export async function currentEnforcement($,ctx) {
-  if(!masterEnabled || emergencyOff)return {mode:'off'};
+  if(courtDisabled())return {mode:'off'};
   const active=enforcedSessions.get(ctx.sessionId);
   if(active && active.projectId!==ctx.projectId)return {...active,hardened:true,bindingMismatch:true};
   const preferences=await loadProjectSettings($,ctx);
   if(!preferences.hardened || preferences.mode!=='enforce')return {mode:preferences.mode,hardened:false};
-  if(active)return {...active,hardened:true,bindingMismatch:active.anchor!==ctx.anchor};
   if(ctx.authConfigured && (ctx.authError || !ctx.signer))return {mode:'enforce',hardened:true,bindingMismatch:true,unconfirmed:true};
+  if(active)return {...active,hardened:true,bindingMismatch:active.anchor!==ctx.anchor};
   const k=key(ctx);
   if(!modes.has(k)){
     const read=await readProject($,ctx);
@@ -66,7 +61,7 @@ export async function currentEnforcement($,ctx) {
 }
 
 export async function observing($) {
-  if(!masterEnabled || emergencyOff)return false;
+  if(courtDisabled())return false;
   const ctx=await observationContext($);
   return (await currentEnforcement($,ctx)).mode!=='off';
 }
@@ -139,31 +134,19 @@ export async function handleCourt($, e) {
   const mutation = ['off','mode','grant','request','revoke','release','role','finding','exemplar','purge'].includes(command) || (command==='judge' && ['on','off'].includes(body)) || (command==='lessons' && /^(on|off|share|unshare|experiment)(\s|$)/.test(body)) || (command==='laws' && body.startsWith('approve')) || ['cleanup','quarantine'].includes(command) || (command==='runtime' && !body.startsWith('profile') && !['status','inspect'].includes(body));
   if (mutation && !trusted(e)) return reply(t('cmd.human'));
   // Emergency switch takes effect even when context or disk is unavailable.
-  if (command==='off' || (command==='mode' && body==='off')) emergencyOff=true;
+  if (command==='off' || (command==='mode' && body==='off')) setEmergencyOff(true);
   try {
-    const ctx = await observationContext($,{recoverPreferences:command==='rules',authentication:command==='runtime' || command==='mode' && (body.startsWith('hardened') || body.startsWith('enforce '))});
+    const ctx = await observationContext($,{recoverPreferences:command==='' || command==='rules',authentication:command==='runtime' || command==='mode' && (body.startsWith('hardened') || body.startsWith('enforce '))});
     const source = {kind:'command',origin:e.origin?.kind || 'unclassified',id:crypto.randomUUID()};
-    if(command==='rules'){
-      try{const opened=await openRulesPane($,ctx);return reply(opened.isPlaced?t('pane.opened'):t('pane.waiting',{reason:opened.reason || ''}));}
+    if(command==='' || command==='rules'){
+      try{const opened=await openRulesPane($,ctx,command===''?'settings':'rules');return reply(opened.isPlaced?t('pane.opened'):t('pane.waiting',{reason:opened.reason || ''}));}
       catch(error){return reply('Rules pane unavailable: '+String(error?.message || error).slice(0,400));}
     }
     if(command==='quarantine')return reply(await quarantineProject($,ctx));
-    if(command==='help')return reply(USAGE);
+    if(command==='help')return reply(body==='advanced'?USAGE.split('\n')[1]:body==='commands'?USAGE.split('\n')[0]:t('settings.help'));
     if(command==='purge'){
       if(!['','all'].includes(body))return reply(USAGE);
-      const root=`${ctx.configRoot}/plugins/data/agent-arbiter`;
-      const scope=t(body==='all'?'cmd.purgeAll':'cmd.purgeProject');
-      let answer='';
-      try{answer=await $.ui.ask(t('cmd.purgeAsk',{scope}),[t('cmd.purgeNo'),t('cmd.purgeYes')]);}catch{ /* No answer deletes nothing. */ }
-      if(answer!==t('cmd.purgeYes'))return reply(t('cmd.purgeCancelled'));
-      const targets=body==='all'?[root]:[`${ctx.archiveRoot}/events/${ctx.projectId}`,`${ctx.archiveRoot}/projects/${ctx.projectId}`,
-        ...(ctx.dataRoot!==ctx.archiveRoot?[`${ctx.dataRoot}/events/${ctx.projectId}`]:[])];
-      // Only paths under Arbiter's own data folder, built from a hashed project id.
-      if(!/^[a-f0-9]{64}$/.test(ctx.projectId) || targets.some(path=>!(path===root || path.startsWith(root+'/')) || path.includes('/../')))return reply(t('cmd.purgeFailed',{error:'unexpected path'}));
-      const result=await $.process.run(['/bin/rm','-rf','--',...targets]);
-      forgetCaches();resetDiscipline();emergencyOff=false;enforcedSessions.clear();modes.clear();
-      try{$.ui.status(undefined);}catch{ /* Best effort. */ }
-      return reply(result.exitCode===0?t('cmd.purged',{scope}):t('cmd.purgeFailed',{error:`exit ${result.exitCode}`}));
+      return reply((await purgeData($,ctx,body==='all')).text);
     }
     if(command==='citizens' && body==='all')return reply(await allProjectScores($,ctx));
     if(command==='citizens'){
@@ -241,9 +224,7 @@ export async function handleCourt($, e) {
     }
     if(command==='mode' && ['enforce','observe','off'].includes(body) || command==='off'){
       const mode=command==='off'?'off':body;
-      const prefs=await loadProjectSettings($,ctx);
-      await updateProjectSettings($,ctx,latest=>({...latest,mode,hardened:false}));
-      emergencyOff=false;enforcedSessions.delete(ctx.sessionId);modes.delete(key(ctx));
+      await changeProjectMode($,ctx,mode);
       return reply({mode,hardened:false,scope:'project'});
     }
     if(command==='runtime'){
@@ -272,7 +253,7 @@ export async function handleCourt($, e) {
 
     if (command==='off' || (command==='mode' && ['observe','off'].includes(body))) {
       const mode = command==='off' || body==='off' ? 'off' : 'observe';
-      if (mode==='observe') emergencyOff=false;
+      if (mode==='observe') setEmergencyOff(false);
       modes.set(key(ctx),mode);
       enforcedSessions.delete(ctx.sessionId);
       try { await emit($,ctx,null,'court.mode',source.id,{mode,source}); }
@@ -346,7 +327,7 @@ export async function handleCourt($, e) {
     }
     return null; // Existing status/verify/cleanup handler owns these commands.
   } catch {
-    if (emergencyOff) return reply('Arbiter off in this process; storage/context unavailable.');
+    if (emergencyStopped()) return reply('Arbiter off in this process; storage/context unavailable.');
     return reply('Arbiter command failed validation or storage; no grant or successful authority decision confirmed.');
   }
 }
