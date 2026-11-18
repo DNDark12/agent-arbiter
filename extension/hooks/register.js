@@ -16,7 +16,7 @@ import { setLanguage, t } from './i18n.js';
 import { refreshStatus, statusCounts } from './status.js';
 import { disciplineState } from './discipline.js';
 import { reduceReviews } from './judge.js';
-import { rememberBrief, noteActivity, judgeRun } from './judge.js';
+import { rememberBrief, rememberMainTurn, mainTurnId, noteActivity, judgeRun } from './judge.js';
 import { briefProfile } from './roles.js';
 import { maintain, pruneProject, RETENTION_DAYS } from './retention.js';
 
@@ -174,6 +174,7 @@ export const register = (on, options = {}) => {
     }
     try {
       if(!ctx)ctx=await context($);
+      if(!actor)data.turnId=mainTurnId(ctx);
       data.head = await gitHead($, ctx.root);
       data.inputHash = await digest(canonical(JSON.parse(JSON.stringify(e))));
       if (typeof e.command === 'string') {
@@ -194,7 +195,7 @@ export const register = (on, options = {}) => {
       const denied=await enforceTool($,ctx,e,data,requestId);
       if(denied){
         try{await emit($,ctx,actor,'tool.result',key,{...data,status:'denied',court:true});}catch{await warn($);}
-        noteActivity(ctx,actor,{tool:e.tool,target:data.file?.path ?? data.command,status:'denied'});
+        noteActivity(ctx,actor,{tool:e.tool,target:data.file?.path ?? data.command,status:'denied'},data.turnId);
         return denied;
       }
       const enforcement=e.tool==='SubagentHandback' && typeof e.message==='string'?await currentEnforcement($,ctx):null;
@@ -214,7 +215,7 @@ export const register = (on, options = {}) => {
       try { if (ctx) await emit($, ctx, actor, 'tool.result', key, { ...data, status: 'exception' }); } catch { await warn($); }
       throw error;
     }
-    if(ctx)noteActivity(ctx,actor,{tool:e.tool,target:data.file?.path ?? data.command,status:result.deny?'denied':result.isError?'error':'completed'});
+    if(ctx)noteActivity(ctx,actor,{tool:e.tool,target:data.file?.path ?? data.command,status:result.deny?'denied':result.isError?'error':'completed'},data.turnId);
     // A spawn the Arbiter moved to another model: say so to whoever started it.
     const spawnNote=e.tool_use_id && !result.deny?takeSpawnNote(e.tool_use_id):null;
     if(spawnNote)result={...result,context:[...(Array.isArray(result.context)?result.context:[]),spawnNote]};
@@ -225,6 +226,13 @@ export const register = (on, options = {}) => {
       status: result.deny ? 'denied' : result.isError ? 'error' : 'completed' }); } catch { await warn($); }
     return result;
   }).catch(($,e,next)=>next.called?next(e):armed()?{deny:'Agent Arbiter hardened tool gate failed; execution refused.'}:(courtDisabled()?next(e):(fallbackTool(e) || next(e))));
+
+  on('turn.start', async ($, e, next) => {
+    if(!e.agentId && await collecting($)){
+      try{rememberMainTurn(await context($),e);}catch{await warn($);}
+    }
+    return next(e);
+  });
 
   on('turn.complete', async ($, e, next) => {
     if (!await collecting($)) return next(e);
@@ -238,12 +246,12 @@ export const register = (on, options = {}) => {
         if (Number.isFinite(value) && value >= 0) usage[key] = value;
       }
       await emit($, ctx, e.agentId || null, 'turn.complete', e.turnId || `${boot}:${++sequence}`, {
-        turnId: e.turnId || null, reason: redact(e.reason), durationMs: e.durationMs,
+        turnId: e.turnId || null, reason: redact(e.reason), isAborted: e.isAborted === true, durationMs: e.durationMs,
         usage, model: e.usage?.model ? redact(e.usage.model) : null,
         transcript: await transcriptCoverage($, e.agentId), git: await gitSnapshot($, ctx.root) });
     } catch { await warn($); }
     // The judge reviews in the background: the turn is handed back without waiting.
-    if (ctx && e.agentId) void judgeRun($, ctx, e).then(review => review ? refreshStatus($, ctx) : null);
+    if (ctx) void judgeRun($, ctx, e).then(review => review ? refreshStatus($, ctx) : null);
     return next(e);
   });
 

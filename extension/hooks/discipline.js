@@ -63,7 +63,7 @@ function violationRecord(id, at, sessionId, agentId, data, released, now) {
     data.sanction === 'detain' && now - at >= JAIL_TERM_MS ? 'served' : 'active';
   return { id, at, sessionId, agentId, sanction: data.sanction, reason: data.reason,
     ruleIds: Array.isArray(data.ruleIds) ? data.ruleIds.filter(rule => typeof rule === 'string') : [],
-    detail: typeof data.detail === 'string' ? data.detail : '', toolCallId: data.toolCallId ?? null,
+    detail: typeof data.detail === 'string' ? data.detail : '', toolCallId: data.toolCallId ?? null, requestId: data.requestId ?? null,
     citizen: data.citizen && typeof data.citizen === 'object' ? data.citizen : null,
     points: POINTS[data.sanction], status, releaseReason: released instanceof Map ? released.get(id) ?? null : null };
 }

@@ -182,7 +182,7 @@ test('native judge reviews a finished run in the background; the pane confirms i
  await ui.press({key:'confirm:'+ref})
  const decision=w.events().find(e=>e.kind==='judge.decision')
  expect(decision.data.decision).toBe('confirmed')
- expect((await $.command.run({command:'arbiter',args:'citizens'})).text).toContain('quality 60 (1 reviews, 0 hard)')
+ expect((await $.command.run({command:'arbiter',args:'citizens'})).text).toContain('Development · Easy · quality 60/100 · 1 scored')
  await ui.press({key:'tab-settings'})
  await ui.press({key:'toggle-judge'})
  expect(JSON.parse(w.files.get(await preferences())!).judge).toBe(false)

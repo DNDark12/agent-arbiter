@@ -48,3 +48,11 @@ export async function citizen($, root, engineVersion, input, offer, resolvedMode
 export function resolvedModelId(value){
   return typeof value==='string' && /^[A-Za-z0-9][A-Za-z0-9_.:/-]{2,255}$/.test(value) && !/^(?:unknown(?:[-_:].*)?|unspecified|haiku|sonnet|opus|fable|inherit|default|auto|latest)$/i.test(value)?value:null;
 }
+
+export function mainCitizen(model) {
+  return {id:null, name:'main-agent', model:resolvedModelId(model), definition:'arbiter:main-loop', kind:'main'};
+}
+
+export function unboundCitizen(model) {
+  return {id:null, name:'unidentified-agent', model:resolvedModelId(model), definition:'arbiter:unidentified-loop'};
+}

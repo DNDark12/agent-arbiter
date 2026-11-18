@@ -28,8 +28,20 @@ function citedIds(events) {
 
 // The routine events old enough to remove, given every event of the project.
 export function prunable(events, now = Date.now(), days = RETENTION_DAYS) {
-  const cutoff = now - days * DAY_MS, cited = citedIds(events);
-  return events.filter(event => ROUTINE.has(event.kind) && event.occurredAt < cutoff && !cited.has(event.id));
+  const cutoff = now - days * DAY_MS, cited = citedIds(events), turns = citedMainTurns(events, cited);
+  return events.filter(event => ROUTINE.has(event.kind) && event.occurredAt < cutoff && !cited.has(event.id) &&
+    !(event.kind === 'turn.complete' && event.agentId === null && turns.has(`${event.sessionId}:${event.data?.turnId}`)));
+}
+
+// A main-agent turn is cited by its turn id: by a review of it, or by a kept
+// tool request (a warning's evidence) made during it. Its score row needs it.
+function citedMainTurns(events, cited) {
+  const turns = new Set();
+  for (const event of events) {
+    if (event.agentId !== null || typeof event.data?.turnId !== 'string') continue;
+    if (event.kind === 'judge.review' || event.kind === 'tool.request' && cited.has(event.id)) turns.add(`${event.sessionId}:${event.data.turnId}`);
+  }
+  return turns;
 }
 
 export async function pruneProject($, ctx, now = Date.now()) {

@@ -50,6 +50,39 @@ test('missing transcript produces explicit unknown coverage, no accusation', asy
   expect(JSON.stringify(w.events())).not.toContain('private answer')
 })
 
+test('a main-only turn is reviewed with usage and appears in the desktop Agents pane', async ($, on) => {
+  const w = world(on)
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('tool.call', () => ({ result: 'fixture' }))
+  on('model.complete', () => ({ value: { isAnswered: true, text: JSON.stringify({
+    scores: { completeness: 4, verification: 4 }, findings: [], exemplar: { worthy: false, why: '' },
+  }) } }))
+  await $.turn.start({ turnId: 'main-test', text: 'Read the fixture and summarize it.' })
+  await $.tool.call({ tool: 'Read', file_path: '/fixture/notes.txt', tool_use_id: 'main-read' })
+  await $.turn.complete({ turnId: 'main-test', isAborted: false, reason: 'answer', answer: 'Read it.',
+    durationMs: 800, usage: { input_tokens: 4, output_tokens: 9, cache_creation_input_tokens: 1,
+      cache_read_input_tokens: 10, model: 'claude-haiku-5-5' } })
+  for (let n = 0; n < 400 && !w.events().some(e => e.kind === 'judge.review'); n++) {
+    await $.command.run({ command: 'arbiter', args: 'help' })
+  }
+  expect(w.events().find(e => e.kind === 'tool.request').data.turnId).toBe('main-test')
+  expect(w.events().find(e => e.kind === 'judge.review').data.citizen.kind).toBe('main')
+  expect(w.events().some(e => e.kind === 'spawn.result')).toBe(false)
+  await $.command.run({ command: 'arbiter', args: 'rules' })
+  const ui = await $.ui.mount({ plugin: 'agent-arbiter', surface: 'desktop', component: 'Pane',
+    requestId: 'arbiter-rules', props: { title: 'Agent Arbiter', isFocused: true, bodyColumns: 80, placement: 'inline' } })
+  await ui.press({ key: 'tab-citizens' })
+  await ui.select({ key: 'score-kind', value: 'main' })
+  expect(await ui.find({ text: 'Main agent · claude-haiku-5-5' })).toBeDefined()
+  expect(await ui.find({ text: 'quality 80/100 · 1 scored', exact: false })).toBeDefined()
+  expect(await ui.find({ text: 'cache read 10, cache write 1', exact: false })).toBeDefined()
+  await ui.select({ key: 'score-kind', value: 'subagent' })
+  expect(await ui.find({ text: 'No agent runs recorded yet.' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('duplicate delivery keeps one event pair and different payload cannot silently replace it', async ($, on) => {
   const w = world(on)
   on('tool.call', () => ({ result: 'ok' }))

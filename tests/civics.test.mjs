@@ -49,7 +49,7 @@ test('scores: runs, clean runs, sanctions and trust per agent type and model; re
   points:sanction==='detain'?30:10,status});
  const rows=reduceScores(events,projectId,{violations:[violation('v1','a1','fine'),violation('v2','a1','detain'),violation('v3','a2','fine','released')]});
  assert.deepEqual(rows.map(row=>[row.model,row.role,row.runs,row.cleanRuns,row.fines,row.detentions,row.points,row.trust,row.detained,row.outputTokens]),
-  [['claude-opus-5-5','dev',1,1,0,0,0,100,false,0],['claude-sonnet-5-5','dev',2,1,1,1,40,60,true,40]]);
+  [['claude-opus-5-5','dev',1,1,0,0,0,100,false,0],['claude-sonnet-5-5','dev',2,1,1,1,40,60,true,40],[null,'other',1,0,0,0,0,100,false,2]]);
  assert.match(scoreTable(rows),/developer@claude-sonnet-5-5 · role dev · trust 60 · runs 2 \(clean 1\) · fines 1 · detentions 1 · DETAINED/);
  assert.match(scoreTable([]),/No agent runs/);
  assert.equal(reduceScores(events,'other',{violations:[]}).length,0);

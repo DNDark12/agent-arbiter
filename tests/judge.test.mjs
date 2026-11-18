@@ -7,6 +7,9 @@ import {enforceSpawn} from '../extension/hooks/spawn.js';
 import {readProject,emit} from '../extension/hooks/events.js';
 import * as discipline from '../extension/hooks/discipline.js';
 import * as judge from '../extension/hooks/judge.js';
+import {reduceScores} from '../extension/hooks/scoring.js';
+import {prunable} from '../extension/hooks/retention.js';
+import {mainCitizen} from '../extension/hooks/citizens.js';
 
 const identity=(name='developer',model='claude-sonnet-5-5')=>({id:'c'.repeat(64),name,source:'userSettings',provider:null,
  definitionHash:'d'.repeat(64),resolvedModel:model,engineVersion:'2.1.325'});
@@ -31,6 +34,73 @@ async function ran(w,ctx,agentId='dev-1',files={'src/a.js':'export const a = 1;\
 }
 const turn=(agentId='dev-1',turnId='t1',answer='Added a; all tests passed. password=REPORTSECRET')=>({agentId,turnId,isAborted:false,answer});
 const reviews=async(w,ctx)=>judge.reduceReviews((await readProject(w.$,ctx)).events,ctx.projectId);
+
+test('a main-only session keeps per-turn usage and review evidence without a spawned agent',async t=>{
+ const {w,ctx}=await fresh(t);
+ judge.rememberMainTurn(ctx,{turnId:'main-1',text:'Read the fixture and report verification. token=MAINSECRET'});
+ judge.noteActivity(ctx,null,{tool:'Read',target:'fixture.txt',status:'completed'});
+ const result={turnId:'main-1',answer:'Read fixture.txt and reported the evidence.',usage:{model:'claude-sonnet-5-5'}};
+ await emit(w.$,ctx,null,'turn.complete','main-1',{turnId:'main-1',model:'claude-sonnet-5-5',reason:'answer',durationMs:1000,usage:{input_tokens:15,cache_read_input_tokens:30,output_tokens:12}});
+ assert.ok(await judge.judgeRun(w.$,ctx,result));
+ assert.equal(await judge.judgeRun(w.$,ctx,result),null);
+ assert.equal(w.requests.length,1);
+ assert.doesNotMatch(w.requests[0].prompt,/MAINSECRET/);
+ const events=(await readProject(w.$,ctx)).events;
+ const [row]=reduceScores(events,ctx.projectId,discipline.reduceDiscipline(events,ctx.projectId),{},judge.reduceReviews(events,ctx.projectId));
+ assert.equal(row.kind,'main');
+ assert.equal(row.runs,1);
+ assert.equal(row.reviews,1);
+ assert.equal(row.inputTokens,15);
+ assert.equal(row.cacheReadTokens,30);
+ assert.equal(row.outputTokens,12);
+ assert.equal(row.durationMs,1000);
+});
+
+test('main-only interrupted turns and warnings stay visible without a quality grade',async t=>{
+ const {w,ctx}=await fresh(t);
+ await emit(w.$,ctx,null,'turn.complete','main-2',{turnId:'main-2',model:'claude-haiku-5-5',reason:'aborted',durationMs:20,usage:{}});
+ const requestId=await emit(w.$,ctx,null,'tool.request','main-denied',{turnId:'main-2',tool:'Bash'});
+ await discipline.recordViolation(w.$,ctx,{tool_use_id:'main-denied'},{ruleIds:['fixture'],reason:'test',detail:'fixture',requestId});
+ const events=(await readProject(w.$,ctx)).events;
+ const rows=reduceScores(events,ctx.projectId,discipline.reduceDiscipline(events,ctx.projectId));
+ const run=rows.find(row=>row.runs===1);
+ assert.equal(run.interruptedRuns,1);
+ assert.deepEqual(run.qualityGroups,[]);
+ assert.equal(run.warnings,1);
+ assert.ok(rows.every(row=>row.trust===100 && !row.detained));
+});
+
+test('pruning keeps main turns with court records; a warning without a turn joins its session row',async t=>{
+ const {w,ctx}=await fresh(t);
+ const model='claude-sonnet-5-5';
+ await emit(w.$,ctx,null,'turn.complete','main-a',{turnId:'main-a',model,reason:'answer',durationMs:10,usage:{input_tokens:1}});
+ await emit(w.$,ctx,null,'turn.complete','main-b',{turnId:'main-b',model,reason:'answer',durationMs:10,usage:{input_tokens:1}});
+ await emit(w.$,ctx,null,'turn.complete','main-c',{turnId:'main-c',model,reason:'answer',durationMs:10,usage:{input_tokens:1}});
+ await emit(w.$,ctx,null,'judge.review','main-a',{turnId:'main-a',citizen:mainCitizen(model),role:'dev',difficulty:'easy',scores:{completeness:4},findings:[]});
+ const requestId=await emit(w.$,ctx,null,'tool.request','main-b-call',{turnId:'main-b',tool:'Bash'});
+ await discipline.recordViolation(w.$,ctx,{tool_use_id:'main-b-call'},{ruleIds:['fixture'],reason:'test',detail:'fixture',requestId});
+ // An older record names no request, so no turn.
+ await discipline.recordViolation(w.$,ctx,{tool_use_id:'legacy'},{ruleIds:['fixture'],reason:'test',detail:'fixture'});
+ const all=(await readProject(w.$,ctx)).events;
+ const gone=new Set(prunable(all,Date.now()+40*24*60*60*1000).map(event=>event.id));
+ const kept=all.filter(event=>!gone.has(event.id));
+ assert.deepEqual(kept.filter(event=>event.kind==='turn.complete').map(event=>event.data.turnId).sort(),['main-a','main-b']);
+ const rows=reduceScores(kept,ctx.projectId,discipline.reduceDiscipline(kept,ctx.projectId),{},judge.reduceReviews(kept,ctx.projectId));
+ assert.deepEqual(rows.map(row=>[row.kind,row.model,row.runs,row.reviews,row.warnings]),[['main',model,2,1,2]]);
+});
+
+test('main turns use at most part of the daily reviews; subagent runs are still reviewed',async t=>{
+ const {w,ctx}=await fresh(t);
+ for(let n=0;n<judge.MAIN_DAILY_TRIALS;n++)await emit(w.$,ctx,null,'judge.review','old-'+n,{turnId:'old-'+n,citizen:mainCitizen('claude-sonnet-5-5'),scores:{},findings:[]});
+ judge.rememberMainTurn(ctx,{turnId:'main-cap',text:'Read the fixture.'});
+ judge.noteActivity(ctx,null,{tool:'Read',target:'fixture.txt',status:'completed'});
+ assert.equal(await judge.judgeRun(w.$,ctx,{turnId:'main-cap',reason:'answer',answer:'Read it.'}),null);
+ assert.equal(w.requests.length,0);
+ await ran(w,ctx);
+ // A subagent turn is judged whatever reason the host gives for its end.
+ assert.ok(await judge.judgeRun(w.$,ctx,{...turn(),reason:'handback'}));
+ assert.equal(w.requests.length,1);
+});
 
 test('parseVerdict: accepts JSON inside prose, keeps unscored dimensions null, bounds and masks findings',()=>{
  const parsed=judge.parseVerdict('Here you go:\n'+verdict({scores:{completeness:9,honesty:'5',verification:3.26,scope:0},
@@ -117,7 +187,7 @@ test('findings count only when the person confirms; a dismissed finding withdraw
  assert.deepEqual(list.map(review=>[review.findings[0]?.state ?? null,review.disputed,review.exemplar.state]),[['confirmed',false,'none'],['dismissed',true,'none'],[null,false,'approved']]);
  // Quality averages the two reviews that stand: 92 and 97.
  await emit(w.$,ctx,null,'spawn.result','run',{status:'started',childAgentId:'dev-1',citizen:identity()});
- assert.match((await w.command('citizens')).text,/quality 95 \(2 reviews, 0 hard\)/);
+ assert.match((await w.command('citizens')).text,/Development · Easy · quality 95\/100 · 2 scored/);
  const taught=(await spawn()).input.prompt;
  assert.match(taught,/Agent Arbiter lessons\..*\n- Report says tests passed but no test command ran \(review finding, honesty\)\nAgent Arbiter exemplars\..*\n- Ran the targeted tests before reporting and listed what was not verified\]$/s);
  assert.ok(!taught.includes('Touched an unrelated file'),'a dismissed finding is not taught');

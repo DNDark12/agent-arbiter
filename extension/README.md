@@ -31,8 +31,8 @@ claude plugin install agent-arbiter@agent-arbiter
 - System rules only switch on/off; custom rules have full create/read/update/delete, with ask, deny, or deny and detain.
 - Maintenance and deletion show their scope and require confirmation; ordinary changes persist immediately.
 - Records violations: a warning for the main agent; a fine, then detention, for a subagent. A detained agent type restarts on another model.
-- Scores each agent type and model, and tells a new agent what earlier ones of its type or role were stopped for.
-- Reviews each finished subagent run with one small model call. The judge is advisory: a finding counts only when you confirm it.
+- Reports main agent turns and subagent runs by model, with usage, duration, and quality grouped by role and difficulty. Totals can include all local projects.
+- Reviews eligible main turns and subagent runs with work evidence. The judge is advisory: a finding counts only when you confirm it.
 
 Prompts, code and tool output are not stored. This mod catches agent mistakes; it is not a security boundary.
 

@@ -3,7 +3,7 @@ import { ACTIONS, EFFECTS, loadProjectSettings, updateProjectSettings, listRules
 import { disciplineState, docket, releaseViolations } from './discipline.js';
 import { t, ruleLabel, actionLabel } from './i18n.js';
 import { readProject } from './events.js';
-import {reduceScores,allProjectScoreRows} from './scoring.js';
+import {reduceScores,allProjectScoreRows,scoreUsage,scoreQuality} from './scoring.js';
 import {projectLessons,shareLessons,unshareLessons,loadLibrary,lessonEffects,experimentResults} from './lessons.js';
 import {reduceReviews,decideFinding,decideExemplar,judgeUsage,JUDGE_MODEL,DAILY_TRIALS} from './judge.js';
 import {refreshStatus,diagnostics} from './status.js';
@@ -18,7 +18,7 @@ const states=new Map();
 function key(ctx){return `${ctx.archiveRoot}:${ctx.projectId}`;}
 function stateFor(ctx){
   if(!states.has(key(ctx)))states.set(key(ctx),{tab:'settings',search:'',group:'all',page:0,editor:null,confirm:null,message:'',
-    pending:false,maintenance:false,diagnostics:null,data:null,pages:{},violationFilter:'all',agentSection:'scores',scoreScope:'project',agentSearch:'',lessonScope:'project',reviewFilter:'pending',detail:null});
+    pending:false,maintenance:false,diagnostics:null,data:null,pages:{},violationFilter:'all',agentSection:'scores',scoreScope:'project',scoreKind:'all',agentSearch:'',lessonScope:'project',reviewFilter:'pending',detail:null});
   return states.get(key(ctx));
 }
 function redraw($){$.ui.invalidate('ui.render');}
@@ -221,22 +221,30 @@ function roleSelect($,h,ctx,name,settings){
 }
 async function scoresView($,h,ctx,state,settings,data){
   if(state.scoreScope==='all' && !data.allScores)data.allScores=await allProjectScoreRows($,ctx);
-  const rows=(state.scoreScope==='all'?data.allScores.rows:data.rows).filter(row=>`${row.name} ${row.model || ''}`.toLowerCase().includes(state.agentSearch.toLowerCase()));
+  const rows=(state.scoreScope==='all'?data.allScores.rows:data.rows).filter(row=>
+    (state.scoreKind==='all' || row.kind===state.scoreKind) &&
+    `${row.name} ${t('pane.agentKind.'+row.kind)} ${row.model || ''}`.toLowerCase().includes(state.agentSearch.toLowerCase()));
   const {visible,controls}=paged($,h,state,'scores',rows),seen=new Set();
   return h.Box({flexDirection:'column',gap:1,children:[
     h.Select({key:'score-scope',label:t('settings.scope'),value:state.scoreScope,options:['project','all'].map(value=>({value,label:t('settings.scope.'+value)})),onSelect:value=>{state.pages.scores=0;change($,state,{scoreScope:value});}}),
+    h.Select({key:'score-kind',label:t('pane.agentKind'),value:state.scoreKind,options:['all','main','subagent'].map(value=>({value,label:t(value==='all'?'settings.all':'pane.agentKind.'+value)})),onSelect:value=>{state.pages.scores=0;change($,state,{scoreKind:value});}}),
     h.Input({key:'agent-search',label:t('settings.agentSearch'),value:state.agentSearch,onInput:value=>{state.pages.scores=0;change($,state,{agentSearch:value});},onSubmit:value=>{state.pages.scores=0;change($,state,{agentSearch:value});}}),
     ...(state.scoreScope==='all'?[h.Text({dimColor:true,children:t('settings.allScores',{count:data.allScores.projects})})]:[]),
     ...(visible.length?visible.map(row=>{
-      const role=!seen.has(row.name) && state.scoreScope==='project';seen.add(row.name);
+      // Main and unidentified rows are not agent types: a role set for them would
+      // override the role each turn's brief gives.
+      const role=!seen.has(row.name) && state.scoreScope==='project' && row.kind==='subagent' && row.name!=='unidentified-agent';seen.add(row.name);
+      const quality=scoreQuality(row);
+      const name=row.kind==='main'?t('pane.agentKind.main'):row.name;
       return h.Box({flexDirection:'column',gap:1,children:[
-        h.Text({bold:true,children:row.name+(row.model?'@'+row.model:'')}),
-        h.Text({children:t('pane.score',{role:row.role,trust:row.trust,runs:row.runs,clean:row.cleanRuns,fines:row.fines,detentions:row.detentions})}),
-        h.Text({dimColor:true,children:row.reviews?t('pane.quality',{quality:row.quality,reviews:row.reviews}):t('pane.qualityNone')}),
+        h.Text({bold:true,children:`${name} · ${row.model ?? t('pane.modelUnknown')}`}),
+        h.Text({children:t(row.kind==='main'?'pane.mainScore':'pane.score',{...row,clean:row.cleanRuns})}),
+        h.Text({dimColor:true,children:scoreUsage(row)}),
+        ...(quality.length?quality:[t('pane.qualityNone')]).map(line=>h.Text({dimColor:true,children:line})),
         ...(role?[roleSelect($,h,ctx,row.name,settings)]:[]),
       ]});
     }):[h.Text({dimColor:true,children:t('pane.scoresNone')})]),controls,
-    ...(state.scoreScope==='project'?Object.keys(settings.roles).filter(name=>!data.rows.some(row=>row.name===name)).map(name=>h.Box({flexDirection:'column',children:[h.Text({children:name}),roleSelect($,h,ctx,name,settings)]})):[]),
+    ...(state.scoreScope==='project' && state.scoreKind==='all'?Object.keys(settings.roles).filter(name=>!data.rows.some(row=>row.name===name)).map(name=>h.Box({flexDirection:'column',children:[h.Text({children:name}),roleSelect($,h,ctx,name,settings)]})):[]),
   ]});
 }
 function lessonsView($,h,ctx,state,settings,data){

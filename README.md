@@ -39,8 +39,8 @@ Requires Claude Code 2.1.325 or later, on macOS or Linux.
 - **Gate.** Asks before force pushes, hard resets, recursive removals, database resets, dependency changes and writes outside the project, including commands wrapped in Docker, Sail, `bash -c` or `ssh`.
 - **Rules.** Switch built-in rules on or off and add your own by path or command pattern. A rule can ask, deny, or deny and detain.
 - **Discipline.** A warning for the main agent; a fine, then detention, for a subagent. A detained agent type restarts on another model.
-- **Scores and lessons.** Trust and quality per agent type and model. New agents are told what earlier ones were stopped for.
-- **Judge.** An advisory review of each finished subagent run. A finding counts only when you confirm it.
+- **Scores and lessons.** Compare main agent turns and subagent runs by model, time, token usage and rule history in the project or across projects. Quality is grouped by role and difficulty with the number of scored reviews. New subagents can receive lessons from earlier violations.
+- **Judge.** Advisory reviews of main agent turns and subagent runs with recorded work evidence. A finding counts only when you confirm it.
 
 ## Usage
 
@@ -74,7 +74,7 @@ Start a new Claude Code session after updating. Existing project preferences and
 
 Data stays on your machine in `~/.claude/plugins/data/agent-arbiter/`. Prompts, code and tool output are not stored. Routine records are removed after 30 days.
 
-The judge sends the brief, the final report and up to three written files to the model through your own session, with secrets masked. It runs at most 20 times a day per project and can be switched off with `/arbiter judge off`.
+The judge sends the brief, the final report and up to three written files to the model through your own session, with secrets masked. For a main-agent turn the brief is the prompt you typed for that turn. It runs at most 20 times a day per project, of which main-agent turns may use at most 10, and can be switched off with `/arbiter judge off`.
 
 Uninstalling the plugin keeps this data. Run `/arbiter purge all` first to remove it.
 

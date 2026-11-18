@@ -9,6 +9,8 @@ import {loadProjectSettings,saveProjectSettings} from '../extension/hooks/projec
 import {emit,readProject} from '../extension/hooks/events.js';
 import {refreshStatus} from '../extension/hooks/status.js';
 import {setLanguage} from '../extension/hooks/i18n.js';
+import {mainCitizen} from '../extension/hooks/citizens.js';
+import {allProjectScoreRows} from '../extension/hooks/scoring.js';
 import * as discipline from '../extension/hooks/discipline.js';
 
 const identity=(name='developer',model='claude-sonnet-5-5')=>({id:'c'.repeat(64),name,source:'userSettings',provider:null,
@@ -107,4 +109,38 @@ test('command replies follow the chosen language',async t=>{
  assert.match((await w.command('judge')).text,/^Thẩm phán: bật · model haiku/);
  setLanguage('en');
  assert.match((await w.command('docket')).text,/^No violations recorded/);
+});
+
+test('all-project main scores total usage and keep role and difficulty groups distinct',async t=>{
+ const {w,ctx}=await fresh(t);
+ const model='claude-sonnet-5-5';
+ async function record(project,turnId,role,difficulty,score){
+  await emit(w.$,project,null,'turn.complete',turnId,{turnId,model,durationMs:100,usage:{input_tokens:15,output_tokens:10}});
+  await emit(w.$,project,null,'judge.review',turnId,{
+   turnId,citizen:mainCitizen(model),role,difficulty,scores:{completeness:score},findings:[],
+  });
+ }
+ await record(ctx,'turn-1','dev','easy',4);
+ await record(ctx,'turn-2','review','hard',3);
+ const other=w.root+'/other-main';
+ await fs.mkdir(other);
+ w.$.session.root=async()=>other;
+ w.$.session.id=async()=>'session-2';
+ const otherCtx=await observationContext(w.$);
+ await record(otherCtx,'turn-1','dev','easy',2);
+ await record(otherCtx,'turn-2','dev','hard',5);
+ await emit(w.$,otherCtx,null,'spawn.result','same-name',{
+  status:'started',childAgentId:'other-agent',citizen:identity('main-agent',model),
+ });
+ const total=await allProjectScoreRows(w.$,otherCtx);
+ assert.equal(total.projects,2);
+ const main=total.rows.find(row=>row.kind==='main');
+ assert.equal(main.runs,4);
+ assert.equal(main.inputTokens,60);
+ assert.equal(main.outputTokens,40);
+ assert.equal(main.durationMs,400);
+ assert.deepEqual(main.qualityGroups.map(({role,difficulty,reviews,quality})=>[role,difficulty,reviews,quality]),[
+  ['dev','easy',2,60],['dev','hard',1,100],['review','hard',1,60],
+ ]);
+ assert.equal(total.rows.find(row=>row.kind==='subagent').runs,1);
 });
