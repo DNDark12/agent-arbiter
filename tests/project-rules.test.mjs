@@ -19,7 +19,8 @@ test('fresh projects enforce built-ins without authentication or setup',async t=
  const {loadProjectSettings,listRules,matchRules}=await rules();const {$,ctx}=await fixture(t);
  const settings=await loadProjectSettings($,ctx);
  assert.deepEqual(settings,{mode:'enforce',hardened:false,disabledRules:[],enabledRules:[],rules:[],lessons:true,judge:true,lessonExperiment:false,roles:{}});
- assert.equal(listRules(settings).length,13);
+ assert.equal(listRules(settings).length,16);
+ for(const action of ['deploy.publish','exec.remote','system.sudo'])assert.equal(matchRules([{action,target:'*'}],settings).effect,'ask',action);
  assert.equal(matchRules([{action:'git.force-push',target:'origin/main'}],settings).effect,'ask');
  // Arbiter data is denied; Claude settings and agent definitions only ask.
  assert.equal(matchRules([{action:'file.arbiter',target:'/court/data'}],settings).effect,'deny');

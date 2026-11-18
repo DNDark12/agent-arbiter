@@ -81,3 +81,23 @@ test('approval never transfers to a symlink target changed while the dialog is o
  await saveProjectSettings(w.$,ctx,{...await loadProjectSettings(w.$,ctx),rules:[{id:'user:ask',action:'file.write',target:'**',effect:'ask'}]});
  assert.match((await enforceTool(w.$,ctx,{tool:'Write',file_path:w.root+'/link/a.js'},{},'one')).deny,/changed|retry/);
 });
+
+test('a git worktree of the same repository is inside the project; a forged worktree entry is not',async t=>{
+ const fs=await import('node:fs/promises'),{join}=await import('node:path'),{tmpdir}=await import('node:os');
+ const {saveProjectSettings}=await import('../extension/hooks/project-rules.js');
+ const w=await fresh(t);let asks=0;w.$.ui.ask=async()=>{asks++;return 'Allow'};
+ const tree=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'arbiter-worktree-'))),forged=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'arbiter-forged-')));
+ t.after(()=>Promise.all([tree,forged].map(path=>fs.rm(path,{recursive:true,force:true}))));
+ const git=await fs.realpath(w.root)+'/.git';
+ await fs.mkdir(git+'/worktrees/tree',{recursive:true});await fs.mkdir(git+'/worktrees/forged',{recursive:true});
+ await fs.writeFile(git+'/worktrees/tree/gitdir',tree+'/.git\n');await fs.writeFile(tree+'/.git','gitdir: '+git+'/worktrees/tree\n');
+ // The forged entry claims a folder whose .git does not point back at it.
+ await fs.writeFile(git+'/worktrees/forged/gitdir',forged+'/.git\n');await fs.writeFile(forged+'/.git','gitdir: '+git+'/worktrees/tree\n');
+ const ctx=await observationContext(w.$);
+ await saveProjectSettings(w.$,ctx,{rules:[{id:'user:src',action:'file.write',target:'src/**',effect:'ask'}]});
+ // The project's own rule reaches the worktree's src; the forged folder stays outside.
+ assert.equal(await enforceTool(w.$,ctx,{tool:'Write',file_path:tree+'/src/a.js'},{},'one'),null);assert.equal(asks,1);
+ assert.equal(await enforceTool(w.$,ctx,{tool:'Write',file_path:forged+'/src/a.js'},{},'two'),null);assert.equal(asks,1);
+ // The worktree's own Claude settings stay protected.
+ assert.equal(await enforceTool(w.$,ctx,{tool:'Write',file_path:tree+'/.claude/settings.json'},{},'three'),null);assert.equal(asks,2);
+});

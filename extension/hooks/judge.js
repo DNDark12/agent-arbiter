@@ -192,7 +192,8 @@ export function reduceReviews(events, projectId, now = Date.now()) {
   return list.filter(event => event.kind === 'judge.review' && event.data.scores && Array.isArray(event.data.findings)).map(event => {
     const waiting = now - event.occurredAt < PENDING_DAYS * DAY_MS;
     const findings = event.data.findings.map((finding, index) => ({ ...finding, index, ref: `${event.id.slice(0, 12)}-${index}`,
-      state: decisions.get(`${event.id}:${index}`) ?? (waiting ? 'open' : 'expired') }));
+      // Only findings worth a decision wait for one: a low one is noted, with no effect.
+      state: decisions.get(`${event.id}:${index}`) ?? (!waiting ? 'expired' : finding.severity === 'low' ? 'noted' : 'open') }));
     const disputed = findings.some(finding => finding.state === 'dismissed');
     const quality = qualityOf(event.data.scores);
     const worthy = event.data.exemplar?.worthy === true && !findings.some(finding => finding.state !== 'dismissed') &&

@@ -20,9 +20,11 @@ function host({ root = ROOT, scope = 'user', projectPath, exit = {}, next = '1.2
   const $ = {
     plugin: { root, name: 'agent-arbiter' },
     env: { get: async key => ({ CLAUDE_CONFIG_DIR: CONFIG, CLAUDE_CODE_EXECPATH: execPath })[key] },
-    fs: { read: async path => { if (path !== INSTALLED) throw new Error('missing'); return JSON.stringify(installed); } },
+    fs: { read: async path => { if (path !== INSTALLED) throw new Error('missing'); return JSON.stringify(installed); },
+      stat: async path => { if (path !== parent) throw new Error('ENOENT'); return { kind: 'file', realPath: parent }; } },
     process: { run: async (argv, init) => {
-      if (argv[0] === '/bin/sh') return { exitCode: 0, stdout: `${parent}\n`, stderr: '' };
+      if (argv[0] === '/bin/sh') return { exitCode: 0, stdout: '4242\n', stderr: '' };
+      if (argv[0] === '/bin/ps') return { exitCode: 0, stdout: argv.at(-1) === '4242' ? `${parent}\n` : '', stderr: '' };
       if (argv[0] === 'claude' && !onPath) throw new Error('ENOENT: Executable not found in $PATH: "claude"');
       runs.push({ argv, init });
       const step = argv.slice(1, 3).join(' ');
@@ -97,4 +99,15 @@ test('only a person can run update: a plugin or SDK origin is refused', async ()
   const { text } = await handleCourt($, { args: 'update', origin: { kind: 'plugin', name: 'other' } });
   assert.match(text, /Human composer\/bridge approval required/);
   assert.equal(runs.length, 0);
+});
+
+test('the engine is found with absolute tools only, and must be a file named claude', async () => {
+  const seen = [];
+  const { $ } = host({ parent: '/Apps/claude-wrapper/claude' });
+  const run = $.process.run;
+  $.process.run = async (argv, init) => { seen.push(argv[0]); return run(argv, init); };
+  $.fs.stat = async () => { throw new Error('ENOENT'); };
+  const { executables } = await import('../extension/hooks/update.js');
+  assert.deepEqual(await executables($), ['claude']);
+  assert.ok(seen.every(path => path.startsWith('/')));
 });

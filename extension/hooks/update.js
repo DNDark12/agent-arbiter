@@ -4,8 +4,6 @@ import { t } from './i18n.js';
 import { configRoot } from './context.js';
 
 const TIMEOUT_MS = 120000;
-// The parent of a command the engine starts is the engine itself.
-const PARENT = 'readlink "/proc/$PPID/exe" 2>/dev/null || ps -o comm= -p "$PPID"';
 const trim = path => typeof path === 'string' ? path.replace(/\/+$/, '') : '';
 
 async function installations($) {
@@ -33,13 +31,29 @@ export async function executables($) {
   const found = [];
   const add = path => { if (typeof path === 'string' && path && !found.includes(path)) found.push(path); };
   add(await $.env.get('CLAUDE_CODE_EXECPATH'));
-  try {
-    const parent = await $.process.run(['/bin/sh', '-c', PARENT], { timeoutMs: 5000 });
-    const path = parent.exitCode === 0 ? String(parent.stdout ?? '').trim() : '';
-    if (path.startsWith('/') && path.split('/').at(-1) === 'claude') add(path);
-  } catch { /* PATH remains. */ }
+  add(await engineExecutable($));
   add('claude');
   return found;
+}
+
+// The engine's own executable: the parent of a command it starts. Only the
+// shell's own $PPID and absolute tools are used, so nothing on PATH runs, and
+// the answer must be a real file named claude.
+async function engineExecutable($) {
+  try {
+    const shell = await $.process.run(['/bin/sh', '-c', 'echo "$PPID"'], { timeoutMs: 5000 });
+    const pid = String(shell.stdout ?? '').trim();
+    if (shell.exitCode !== 0 || !/^[1-9][0-9]*$/.test(pid)) return null;
+    let path = null;
+    try { path = (await $.fs.stat(`/proc/${pid}/exe`, { resolve: true })).realPath ?? null; } catch { /* Not Linux. */ }
+    if (!path) {
+      const ps = await $.process.run(['/bin/ps', '-o', 'comm=', '-p', pid], { timeoutMs: 5000 });
+      path = ps.exitCode === 0 ? String(ps.stdout ?? '').trim() : null;
+    }
+    if (!path?.startsWith('/') || path.split('/').at(-1) !== 'claude') return null;
+    const file = await $.fs.stat(path, { resolve: true });
+    return file.kind === 'file' ? file.realPath || path : null;
+  } catch { return null; }
 }
 
 const tail = result => String(result.stderr || result.stdout || '').trim().split('\n').slice(-3).join(' ').slice(0, 400);

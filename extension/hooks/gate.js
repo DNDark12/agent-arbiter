@@ -14,6 +14,7 @@ import {sentencing} from './sentencing.js';
 import {reduceCases} from './cases.js';
 import {recordHardLaw} from './court.js';
 import {actorSentence,stopForHandover} from './prison.js';
+import {worktreeRoots} from './forensics.js';
 
 const block=reason=>({deny:'Agent Arbiter: '+reason});
 const turnBoundaries=new Map();
@@ -156,16 +157,25 @@ async function defaultActions($,ctx,event){
     if(typeof target==='string')actions=[{action:'file.write',target}];
   }
   const result=[];
+  let worktrees=null;
   for(const item of actions){
     if(item.action!=='file.write' && item.action!=='fs.remove'){result.push(item);continue;}
     const removal=item.action==='fs.remove';
     const lexical=absolutePath(item.target,ctx.root),resolved=await resolvedPath($,item.target,ctx.root);
     if(!resolved){result.push(item);continue;}
-    const kind=protectedKind(lexical,ctx,removal) || protectedKind(resolved,ctx,removal);
-    const inside=within(resolved,ctx.root);
+    let kind=protectedKind(lexical,ctx,removal) || protectedKind(resolved,ctx,removal);
+    let base=within(resolved,ctx.root)?ctx.root:null;
+    // Another checkout of the same repository (a git worktree) is the same project;
+    // its own Claude settings and agent definitions stay protected.
+    if(!base && !kind){
+      worktrees??=await worktreeRoots($,ctx.projectRoot || ctx.root);
+      const tree=worktrees.find(root=>root!==ctx.root && within(resolved,root));
+      if(tree){base=tree;kind=protectedKind(resolved,{...ctx,root:tree,projectRoot:tree},removal);}
+    }
+    const inside=base!==null;
     const temporary=!inside && TEMP_ROOTS.some(root=>resolved.startsWith(root+'/'));
     item.target=resolved;
-    if(inside)item.relativeTarget=resolved.slice(ctx.root.length+1) || '.';
+    if(inside)item.relativeTarget=resolved.slice(base.length+1) || '.';
     const routine=!kind && removal && (temporary || inside && REGENERABLE.has(resolved.slice(resolved.lastIndexOf('/')+1)));
     if(!routine)result.push(item);
     if(kind)result.push({action:kind==='court'?'file.arbiter':'file.protected',target:resolved});

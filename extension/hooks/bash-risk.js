@@ -121,7 +121,81 @@ const ordinary = new Set(['pwd', 'ls', 'cat', 'rg', 'grep', 'find', 'head', 'tai
   'node', 'npx', 'tsx', 'tsc', 'make', 'curl', 'wget', 'docker', 'go', 'cargo', 'pytest']);
 
 // Prefix commands that run the rest of their line as another command.
-const PREFIXES = ['env', 'sudo', 'command', 'exec', 'nohup', 'time', 'nice', 'timeout', 'stdbuf'];
+const PREFIXES = ['env', 'sudo', 'doas', 'command', 'exec', 'nohup', 'time', 'nice', 'timeout', 'stdbuf'];
+const ELEVATE = new Set(['sudo', 'doas']);
+// Fetch from the network; piped into an interpreter, what they fetch runs as code.
+const DOWNLOADERS = new Set(['curl', 'wget', 'fetch', 'http', 'https', 'xh']);
+const INTERPRETERS = new Set(['python', 'python3', 'node', 'perl', 'ruby', 'php']);
+const CODE_FLAGS = new Set(['-c', '-e', '-m', '-r', '-p', '-E', '--eval', '--print', '--run']);
+const any = (words, list) => words.some(word => list.includes(word));
+// Tools that publish a package or deploy, by name: given the words that are not options and all words.
+const PUBLISH = {
+  cargo: w => w[0] === 'publish', gem: w => w[0] === 'push', twine: w => w[0] === 'upload',
+  poetry: w => w[0] === 'publish', uv: w => w[0] === 'publish', flit: w => w[0] === 'publish', hatch: w => w[0] === 'publish',
+  dotnet: w => w[0] === 'nuget' && w[1] === 'push', gh: w => w[0] === 'release' && any([w[1]], ['create', 'upload', 'edit', 'delete']),
+  terraform: w => any([w[0]], ['apply', 'destroy', 'import']), tofu: w => any([w[0]], ['apply', 'destroy', 'import']),
+  pulumi: w => any([w[0]], ['up', 'update', 'destroy']), cdk: w => any([w[0]], ['deploy', 'destroy']),
+  serverless: w => any([w[0]], ['deploy', 'remove']), sls: w => any([w[0]], ['deploy', 'remove']),
+  kubectl: w => any(w, ['apply', 'create', 'delete', 'replace', 'patch', 'scale', 'rollout', 'drain', 'edit']),
+  helm: w => any(w, ['install', 'upgrade', 'uninstall', 'rollback']),
+  vercel: (w, all) => any(all, ['--prod', '--production']) || w[0] === 'promote',
+  netlify: (w, all) => w[0] === 'deploy' && any(all, ['--prod', '--production']),
+  fly: w => w[0] === 'deploy', flyctl: w => w[0] === 'deploy', firebase: w => w[0] === 'deploy',
+  wrangler: w => any([w[0]], ['deploy', 'publish']), kamal: w => any([w[0]], ['deploy', 'rollback', 'remove']),
+  cap: w => w.includes('deploy'), eb: w => w[0] === 'deploy', gcloud: w => w.includes('deploy'),
+};
+// Tools that add or remove dependencies, by name: the packages named, [] for none, null for no change.
+const after = (w, count) => w.slice(count);
+const PACKAGES = {
+  cargo: w => any([w[0]], ['add', 'remove', 'rm']) ? after(w, 1) : null,
+  poetry: w => any([w[0]], ['add', 'remove']) ? after(w, 1) : null,
+  uv: w => any([w[0]], ['add', 'remove']) ? after(w, 1) : w[0] === 'pip' && any([w[1]], ['install', 'uninstall']) && w.length > 2 ? after(w, 2) : null,
+  pipenv: w => any([w[0]], ['install', 'uninstall']) && w.length > 1 ? after(w, 1) : null,
+  bundle: w => any([w[0]], ['add', 'remove']) ? after(w, 1) : null,
+  go: w => w[0] === 'get' && w.length > 1 ? after(w, 1) : null,
+  dotnet: w => any([w[0]], ['add', 'remove']) && w.includes('package') ? w.slice(w.indexOf('package') + 1) : null,
+  deno: w => any([w[0]], ['add', 'remove']) ? after(w, 1) : null,
+  conda: w => any([w[0]], ['install', 'remove', 'uninstall']) && w.length > 1 ? after(w, 1) : null,
+  mamba: w => any([w[0]], ['install', 'remove', 'uninstall']) && w.length > 1 ? after(w, 1) : null,
+};
+// Migration and schema tools, by name: 'reset', 'drop', 'migrate' or null.
+const sequelize = w => w[0] === 'db:drop' ? 'drop' : w[0] === 'db:migrate:undo:all' ? 'reset' : /^db:(?:migrate|seed)/.test(w[0] ?? '') ? 'migrate' : null;
+const DATABASES = {
+  flyway: w => w.includes('clean') ? 'reset' : w.includes('migrate') ? 'migrate' : null,
+  liquibase: w => w.some(word => /^drop-?all$/i.test(word)) ? 'reset' : w.some(word => /^update/i.test(word)) ? 'migrate' : null,
+  alembic: w => w[0] === 'downgrade' && w[1] === 'base' ? 'reset' : any([w[0]], ['upgrade', 'downgrade']) ? 'migrate' : null,
+  knex: (w, all) => w[0] === 'migrate:rollback' && all.includes('--all') ? 'reset' :
+    any([w[0]], ['migrate:latest', 'migrate:up', 'migrate:down', 'migrate:rollback', 'seed:run']) ? 'migrate' : null,
+  sequelize, 'sequelize-cli': sequelize,
+  typeorm: w => w[0] === 'schema:drop' ? 'reset' : any([w[0]], ['migration:run', 'migration:revert', 'schema:sync']) ? 'migrate' : null,
+  'drizzle-kit': w => any([w[0]], ['push', 'migrate']) ? 'migrate' : null,
+  diesel: w => w[0] === 'database' && w[1] === 'reset' ? 'reset' : w[0] === 'migration' && any([w[1]], ['run', 'redo', 'revert']) ? 'migrate' : null,
+  migrate: w => w.includes('drop') ? 'reset' : any(w, ['up', 'down', 'goto', 'force']) ? 'migrate' : null,
+  mix: w => any([w[0]], ['ecto.drop', 'ecto.reset']) ? 'reset' : any([w[0]], ['ecto.migrate', 'ecto.rollback']) ? 'migrate' : null,
+  dotnet: w => w[0] === 'ef' && w[1] === 'database' ? (w[2] === 'drop' ? 'reset' : w[2] === 'update' ? 'migrate' : null) : null,
+};
+
+// Whether a command run at the end of a pipe takes what it reads as code.
+function runsInput(words) {
+  const [first, ...rest] = words;
+  if (!first?.literal) return false;
+  const name = basename(first.value), values = rest.map(word => word.value);
+  if (SHELLS.has(name)) {
+    for (const value of values) {
+      if (value === '-s' || value === '--') return true;
+      if (/^-[A-Za-z]*c[A-Za-z]*$/.test(value)) return false;
+      if (!value.startsWith('-')) return false;
+    }
+    return true;
+  }
+  if (!INTERPRETERS.has(name)) return false;
+  for (const value of values) {
+    if (value === '-') return true;
+    if (CODE_FLAGS.has(value)) return false;
+    if (!value.startsWith('-')) return false;
+  }
+  return true;
+}
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
 const DOCKER_GLOBAL_VALUE = new Set(['-H', '--host', '-c', '--context', '--config', '-l', '--log-level']);
 const COMPOSE_GLOBAL_VALUE = new Set(['-f', '--file', '-p', '--project-name', '--profile', '--env-file',
@@ -139,11 +213,12 @@ const MAX_DEPTH = 4;
 const MAX_COMMANDS = 64;
 
 function unwrap(words, directory) {
-  let index = 0;
+  let index = 0, elevated = false;
   while (assignment(words[index] ?? { value: '' })) index++;
   while (words[index]) {
     const name = basename(words[index].value);
     if (!PREFIXES.includes(name)) break;
+    if (ELEVATE.has(name)) elevated = true;
     index++;
     while (words[index]) {
       const arg = words[index].value;
@@ -160,13 +235,14 @@ function unwrap(words, directory) {
       }
       if ((name === 'sudo' && ['-u', '-g', '-h', '-p', '-C', '-D', '-T', '--user', '--group', '--host', '--prompt', '--chdir'].includes(arg)) ||
           (name === 'env' && ['-u', '--unset', '-C', '--chdir'].includes(arg)) ||
+          (name === 'doas' && ['-u', '-C'].includes(arg)) ||
           (name === 'nice' && ['-n', '--adjustment'].includes(arg)) ||
           (name === 'timeout' && ['-k', '--kill-after', '-s', '--signal'].includes(arg))) index++;
     }
     // timeout takes its duration before the wrapped command.
     if (name === 'timeout' && words[index]) index++;
   }
-  return { words: words.slice(index), directory };
+  return { words: words.slice(index), directory, elevated };
 }
 
 function operands(words, takesValue = []) {
@@ -228,6 +304,7 @@ function analyze(command, cwd, depth) {
     const args = [...unwrapped.words], childDirectory = unwrapped.directory;
     note(input.map(word => word.value).join(' '));
     if (args.length !== input.length) note(args.map(word => word.value).join(' '));
+    if (unwrapped.elevated) add('system.sudo');
     const first = args.shift();
     if (!first) return;
     if (!first.literal) { result.unknown = true; return; }
@@ -361,6 +438,8 @@ function analyze(command, cwd, depth) {
         if (inner.length) run(inner, null, level + 1);
       } else if (compose && subcommand === 'down' && values.some(value => ['-v', '--volumes'].includes(value))) {
         add('db.reset');
+      } else if (!compose && (subcommand === 'push' || (subcommand === 'image' && args[i + 1]?.value === 'push'))) {
+        add('deploy.publish', operands(args.slice(subcommand === 'push' ? i + 1 : i + 2))[0]);
       }
       return;
     }
@@ -445,7 +524,22 @@ function analyze(command, cwd, depth) {
         const pattern = /\bDROP\s+(?:DATABASE|TABLE|SCHEMA)\s+(?:IF\s+EXISTS\s+)?(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([\w.-]+))/gi;
         const statement = word.value.replace(/'(?:''|\\.|[^'])*'|--[^\n]*|\/\*[\s\S]*?\*\//g, ' ');
         for (const match of statement.matchAll(pattern)) add('db.drop', { value: match[1] ?? match[2] ?? match[3] ?? match[4], literal: true });
+        // Emptying a table loses its rows as surely as dropping it.
+        for (const match of statement.matchAll(/\bTRUNCATE\s+(?:TABLE\s+)?(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([\w.-]+))/gi)) add('db.drop', { value: match[1] ?? match[2] ?? match[3] ?? match[4], literal: true });
       }
+      return;
+    }
+    if (PUBLISH[name] || PACKAGES[name] || DATABASES[name]) {
+      const words = values.filter(value => !value.startsWith('-'));
+      const word = value => args.find(item => item.value === value);
+      if (PUBLISH[name]?.(words, values)) add('deploy.publish');
+      const packages = PACKAGES[name]?.(words, values);
+      if (packages && !packages.length) add('package.change');
+      for (const value of packages ?? []) add('package.change', word(value));
+      const database = DATABASES[name]?.(words, values);
+      if (database === 'reset') add('db.reset');
+      else if (database === 'drop') add('db.drop');
+      else if (database === 'migrate') optional('db.migrate');
       return;
     }
     let manager = name, packageArgs = args;
@@ -455,6 +549,7 @@ function analyze(command, cwd, depth) {
     if (['npm', 'yarn', 'pnpm', 'bun', 'composer', 'pip', 'pip3'].includes(manager)) {
       const commandArgs = operands(packageArgs, ['--filter', '-F', '--prefix', '--cwd', '-C', '--dir', '--working-dir', '--registry', '--cache', '--userconfig', '--index-url', '--extra-index-url', '-r', '--requirement', '-c', '--constraint', '--target', '--python']);
       const verb = commandArgs.shift()?.value;
+      if (manager !== 'composer' && !manager.startsWith('pip') && verb === 'publish') add('deploy.publish');
       const verbs = manager === 'composer' ? ['require', 'remove'] :
         ['add', 'install', 'i', 'uninstall', 'remove', 'rm', 'un', 'r'];
       if (verbs.includes(verb)) {
@@ -471,7 +566,9 @@ function analyze(command, cwd, depth) {
     if (!ordinary.has(name)) result.unknown = true;
   };
 
-  const classify = segment => {
+  // piped: the segment reads what a download printed. Returns whether this
+  // segment downloads, for the segment after a pipe.
+  const classify = (segment, piped) => {
     const words = [];
     for (let i = 0; i < segment.length; i++) {
       const token = segment[i];
@@ -483,13 +580,17 @@ function analyze(command, cwd, depth) {
       if (token.value.includes('>') && !token.value.endsWith('>&') && !sink) add('file.write', destination, true);
       if (token.value.includes('<<')) result.unknown = true;
     }
-    if (words.length) run(words, directory, depth, true);
+    if (!words.length) return false;
+    const inner = unwrap(words, directory).words;
+    if (piped && runsInput(inner)) add('exec.remote');
+    run(words, directory, depth, true);
+    return inner[0]?.literal === true && DOWNLOADERS.has(basename(inner[0].value));
   };
-  let segment = [];
+  let segment = [], fetched = false;
   for (const token of parsed.tokens) {
-    if (token.type === 'separator') { classify(segment); segment = []; }
+    if (token.type === 'separator') { fetched = classify(segment, fetched) && token.value === '|'; segment = []; }
     else segment.push(token);
   }
-  classify(segment);
+  classify(segment, fetched);
   return result;
 }

@@ -63,10 +63,10 @@ test('an undecided finding or exemplar candidate stops waiting after two weeks',
  const projectId='p'.repeat(64),now=1_000_000_000_000;
  const review=(id,ageDays,data)=>({id:id.repeat(64),projectId,sessionId:'s',agentId:'a',kind:'judge.review',occurredAt:now-ageDays*DAY,
   data:{scores:{completeness:5,honesty:5},findings:[],exemplar:{worthy:false,why:''},...data}});
- const finding={severity:'low',dimension:'scope',claim:'c',evidence:'e'};
- const events=[review('a',1,{findings:[finding]}),review('b',judge.PENDING_DAYS+1,{findings:[finding]}),
+ const finding={severity:'medium',dimension:'scope',claim:'c',evidence:'e'};
+ const events=[review('f',1,{findings:[{...finding,severity:'low'}]}),review('a',1,{findings:[finding]}),review('b',judge.PENDING_DAYS+1,{findings:[finding]}),
   review('c',1,{exemplar:{worthy:true,why:'good'}}),review('d',judge.PENDING_DAYS+1,{exemplar:{worthy:true,why:'good'}}),
   {id:'e'.repeat(64),projectId,sessionId:'s',agentId:null,kind:'judge.decision',occurredAt:now,data:{reviewId:'b'.repeat(64),finding:0,decision:'confirmed',source:{origin:'sdk'}}}];
  const reviews=judge.reduceReviews(events,projectId,now);
- assert.deepEqual(reviews.map(r=>[r.findings[0]?.state ?? null,r.exemplar.state]).sort(),[['expired','none'],['open','none'],[null,'candidate'],[null,'expired']].sort());
+ assert.deepEqual(reviews.map(r=>[r.findings[0]?.state ?? null,r.exemplar.state]).sort(),[['expired','none'],['noted','none'],['open','none'],[null,'candidate'],[null,'expired']].sort());
 });

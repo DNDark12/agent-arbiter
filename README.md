@@ -59,6 +59,27 @@ Maintenance actions explain their scope and ask for confirmation. Deleting data 
 
 Existing commands still work as optional shortcuts. `/arbiter rules` opens Rules directly; `/arbiter off` is the emergency switch. Use `/arbiter help commands` for the command list and `/arbiter help advanced` for the experimental hardened runtime.
 
+## Built-in rules
+
+Every project starts with one standard set that fits any language. Each rule asks before the action runs unless noted. Switch any of them off, or add project-specific rules (a path, a command pattern, a stricter effect) in **Rules**.
+
+| Rule | Covers, for example |
+|---|---|
+| Force push | `git push --force`, `+ref` pushes |
+| Hard reset | `git reset --hard` |
+| Discard uncommitted work or delete branches | `git checkout -- .`, `git restore`, `git clean -f`, `git branch -D`, `git stash drop` |
+| Remove files or directories | `rm -rf`, `find -delete` (temporary and rebuildable folders excepted) |
+| Reset database | `migrate:fresh`, `db:reset`, `prisma migrate reset`, `flyway clean`, `alembic downgrade base`, `mix ecto.reset`, `dotnet ef database drop`, `docker compose down -v` |
+| Drop or empty databases, tables or schemas | `DROP` and `TRUNCATE` in SQL, `dropdb`, `sequelize db:drop` |
+| Change dependencies | npm, yarn, pnpm, bun, composer, pip, uv, poetry, pipenv, cargo, go, bundle, dotnet, deno, conda |
+| Publish a package or deploy | `npm publish`, `cargo publish`, `twine upload`, `docker push`, `gh release create`, `terraform apply`, `kubectl apply`, `helm upgrade`, `vercel --prod`, `fly deploy`, `wrangler deploy` |
+| Run code downloaded from the internet | `curl … \| sh`, `wget -O- … \| bash`, `curl … \| python3` |
+| Run commands as administrator | `sudo`, `doas` |
+| Write outside the project | writes outside the project and its git worktrees, except temporary folders and `/dev/null` |
+| Change Claude settings or agent definitions | `.claude/settings*.json`, agent definitions |
+| Change Agent Arbiter data or code | always denied |
+| Commit, Push, Run database migrations or seeders | off until you switch them on |
+
 ## Update
 
 Run `/arbiter update` in a session: it refreshes the marketplace, then updates the plugin. From a terminal, the same two steps are:

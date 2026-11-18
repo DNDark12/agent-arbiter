@@ -1,5 +1,6 @@
 import { ROLES } from './roles.js';
-// Built-in rules can only be switched on or off. The last three are off until
+// Built-in rules: the standard set every project gets, in any language; details
+// belong in a project's custom rules. They can only be switched on or off. The last three are off until
 // the person switches them on: commit, push and migrate are ordinary work in
 // most projects and forbidden in some.
 const BUILTINS = Object.freeze([
@@ -8,8 +9,11 @@ const BUILTINS = Object.freeze([
   { id: 'git.discard', label: 'Discard uncommitted work or delete branches', effect: 'ask' },
   { id: 'fs.remove', label: 'Remove files or directories', effect: 'ask' },
   { id: 'db.reset', label: 'Reset database', effect: 'ask' },
-  { id: 'db.drop', label: 'Drop database objects', effect: 'ask' },
+  { id: 'db.drop', label: 'Drop or empty databases, tables or schemas', effect: 'ask' },
   { id: 'package.change', label: 'Change dependencies', effect: 'ask' },
+  { id: 'deploy.publish', label: 'Publish a package or deploy', effect: 'ask' },
+  { id: 'exec.remote', label: 'Run code downloaded from the internet', effect: 'ask' },
+  { id: 'system.sudo', label: 'Run commands as administrator', effect: 'ask' },
   { id: 'file.external', label: 'Write outside the project', effect: 'ask' },
   { id: 'file.protected', label: 'Change Claude settings or agent definitions', effect: 'ask' },
   { id: 'file.arbiter', label: 'Change Agent Arbiter data or code', effect: 'deny' },

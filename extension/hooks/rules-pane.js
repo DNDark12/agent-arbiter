@@ -77,7 +77,7 @@ async function confirmAction($,ctx){
   });
   if(success)change($,state,{confirm:null,editor:null,detail:null,...(confirmation.type==='reset'?{search:'',group:'all',page:0}:{})});
 }
-function groupOf(rule){const group=rule.action.split('.')[0];return rule.source==='user'?'custom':group==='fs'?'file':group;}
+function groupOf(rule){const group=rule.action.split('.')[0];return rule.source==='user'?'custom':group==='fs'?'file':group==='exec'?'system':group;}
 function editorFor(rule){return rule?{action:rule.action,target:rule.target,effect:rule.effect,original:{id:rule.id,action:rule.action,target:rule.target,effect:rule.effect}}:{action:'file.write',target:'**',effect:'ask',original:null};}
 function confirmationView($,h,ctx,state){
   const c=state.confirm;
@@ -121,7 +121,7 @@ function rulesView($,h,ctx,state,settings){
       h.Button({key:'new-rule',label:'+ '+t('pane.add'),variant:'primary',onPress:()=>change($,state,{editor:editorFor(null),message:''})}),
     ]}),
     h.Box({flexDirection:'row',flexWrap:'wrap',gap:1,justifyContent:'space-between',children:[
-      h.Select({key:'rule-group',value:state.group,options:['all','git','db','file','package','custom'].map(value=>({value,label:t('pane.group.'+value)})),onSelect:value=>change($,state,{group:value,page:0})}),
+      h.Select({key:'rule-group',value:state.group,options:['all','git','db','file','package','deploy','system','custom'].map(value=>({value,label:t('pane.group.'+value)})),onSelect:value=>change($,state,{group:value,page:0})}),
       h.Text({dimColor:true,children:t('pane.count',{count:filtered.length,enabled:filtered.filter(rule=>rule.enabled).length})}),
     ]}),
     ...visible.map(rule=>h.Box({key:'row:'+rule.id,flexDirection:'row',flexWrap:'wrap',gap:1,alignItems:'center',justifyContent:'space-between',children:[
@@ -277,16 +277,17 @@ function reviewsView($,h,ctx,state,settings,data){
     h.Text({bold:true,children:`${t('settings.details')} · ${detail.citizen?.name || 'agent'}`}),
     h.Text({dimColor:true,children:detail.id}),
     ...Object.entries(detail.scores).map(([dimension,score])=>h.Text({children:`${t('dimension.'+dimension)}: ${score ?? '—'}`})),
+    ...(detail.findings.some(finding=>['open','noted'].includes(finding.state))?[h.Text({dimColor:true,children:t('pane.findingHint')})]:[]),
     ...detail.findings.map(finding=>h.Box({flexDirection:'column',gap:1,children:[
       h.Text({children:`${finding.severity} · ${t('dimension.'+finding.dimension)} · ${t('settings.decision.'+finding.state)}`}),
       h.Text({children:finding.claim}),h.Text({dimColor:true,children:finding.evidence}),
-      ...(finding.state==='open'?[h.Box({flexDirection:'row',gap:1,children:[
+      ...(['open','noted'].includes(finding.state)?[h.Box({flexDirection:'row',gap:1,children:[
         h.Button({key:'confirm:'+finding.ref,label:t('pane.confirmFinding'),onPress:()=>decide($,ctx,'finding',finding.ref,'confirmed')}),
         h.Button({key:'dismiss:'+finding.ref,label:t('pane.dismissFinding'),onPress:()=>decide($,ctx,'finding',finding.ref,'dismissed')}),
       ]})]:[]),
     ]})),
     ...(detail.exemplar.state!=='none'?[h.Text({children:`${t('pane.exemplar')} · ${t('settings.decision.'+detail.exemplar.state)}: ${detail.exemplar.why}`})]:[]),
-    ...(detail.exemplar.state==='candidate'?[h.Box({flexDirection:'row',gap:1,children:[
+    ...(detail.exemplar.state==='candidate'?[h.Text({dimColor:true,children:t('pane.exemplarHint')}),h.Box({flexDirection:'row',gap:1,children:[
       h.Button({key:'approve:'+detail.ref,label:t('pane.approve'),onPress:()=>decide($,ctx,'exemplar',detail.ref,'approved')}),
       h.Button({key:'reject:'+detail.ref,label:t('pane.reject'),onPress:()=>decide($,ctx,'exemplar',detail.ref,'rejected')}),
     ]})]:[]),

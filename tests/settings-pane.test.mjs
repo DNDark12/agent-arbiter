@@ -145,7 +145,7 @@ test('lessons can be shared and withdrawn in the pane, while review decisions ke
  await p.select('lesson-scope','library');assert.ok(p.first('unshare:'));await p.press(p.first('unshare:'));await p.press('confirm-unshare');
  assert.match(p.text(),/shared library is empty/i);
  const reviewId=await emit(p.$,p.ctx,'coder1','judge.review','review1',{citizen:{name:'coder',model:'model-a',definition:'d'.repeat(64)},role:'dev',difficulty:'easy',
-  scores:{completeness:3},findings:[{severity:'low',dimension:'correctness',claim:'Missing verification',evidence:'Final report has no test result'}],exemplar:{worthy:false}});
+  scores:{completeness:3},findings:[{severity:'medium',dimension:'correctness',claim:'Missing verification',evidence:'Final report has no test result'}],exemplar:{worthy:false}});
  await p.select('agent-section','reviews');await p.press('review:'+reviewId);assert.ok(p.find('back-reviews'));
  assert.match(p.text(),/Final report has no test result/);await p.press('confirm:'+reviewId.slice(0,12)+'-0');
  const event=(await readProject(p.$,p.ctx)).events.find(e=>e.kind==='judge.decision');
@@ -182,7 +182,7 @@ test('quarantine and cleanup require confirmation; default cleanup keeps decisio
 
 test('review pagination and a stale finding decision never overwrite a decision made elsewhere',async t=>{
  const p=await pane(t,'citizens');let id;
- for(let n=0;n<8;n++)id=await emit(p.$,p.ctx,'coder','judge.review','r'+n,{scores:{honesty:3},findings:[{severity:'low',dimension:'honesty',claim:'Claim '+n,evidence:'Evidence '+n}],exemplar:{worthy:false}});
+ for(let n=0;n<8;n++)id=await emit(p.$,p.ctx,'coder','judge.review','r'+n,{scores:{honesty:3},findings:[{severity:'medium',dimension:'honesty',claim:'Claim '+n,evidence:'Evidence '+n}],exemplar:{worthy:false}});
  await p.select('agent-section','reviews');assert.ok(p.find('reviews-next'));await p.press('reviews-next');assert.match(p.text(),/7–8 \/ 8/);
  await p.press('reviews-previous');await p.press('review:'+id);const button=p.first('confirm:');assert.ok(button);
  const event=(await readProject(p.$,p.ctx)).events.find(e=>e.id===id);
