@@ -187,14 +187,14 @@ test('approval dialog names the agent, the command and the rule in the chosen la
  assert.equal(setLanguage('auto',''),'en');assert.equal(setLanguage('fr','vi_VN'),'vi');
  assert.equal(text('missing.key'),'missing.key');
  const {w,ctx}=await fresh(t);discipline.rememberCitizen(ctx,'dev-1',identity());
- let seen;w.$.ui.ask=async(question,options)=>{seen={question,options};return options[1]};
+ let seen;w.$.ui.ask=async(question,options)=>{seen={question,options};return options[0]};
  setLanguage('vi');assert.equal(currentLanguage(),'vi');
  assert.equal(await enforceTool(w.$,ctx,{tool:'Bash',command:REMOVE+' scratch',agentId:'dev-1'},{},'one'),null);
- assert.deepEqual(seen.options,['Từ chối','Cho phép','Cho phép luật này trong session']);
+ assert.deepEqual(seen.options,['Cho phép','Cho phép luật này trong session','Từ chối']);
  for(const part of ['Agent developer (claude-sonnet-5-5)','Lệnh: '+REMOVE+' scratch','Luật: Xoá file hoặc thư mục','fs.remove on scratch.'])assert.ok(seen.question.includes(part),part+' in '+seen.question);
  setLanguage('en');
  await enforceTool(w.$,ctx,{tool:'Bash',command:'git reset --hard'},{},'two');
- assert.deepEqual(seen.options,['Deny','Allow','Allow this rule for the session']);
+ assert.deepEqual(seen.options,['Allow','Allow this rule for the session','Deny']);
  assert.match(seen.question,/The main agent wants to: git\.reset-hard on \*\.\nCommand: git reset --hard\nRule: Hard reset\./);
  // A secret in the command is masked before it reaches the dialog.
  await enforceTool(w.$,ctx,{tool:'Bash',command:'TOKEN=abc password=hunter2 '+REMOVE+' scratch2'},{},'three');

@@ -234,7 +234,8 @@ async function enforceDefault($,ctx,event,state,requestId){
   const who=actor?t('actor.agent',{name:citizen?citizen.name+(citizen.model?' ('+citizen.model+')':''):actor}):t('actor.main');
   const command=typeof event.command==='string'?t('ask.command',{command:redact(event.command).slice(0,300)}):'';
   let answer='';
-  try{answer=await $.ui.ask(t('ask.question',{actor:who,detail:receipt.detail,command,rules:decision.rules.map(ruleLabel).join('; ')}),[labels.deny,labels.once,labels.session]);}catch{ /* Dismissed/unavailable never grants. */ }
+  // Allow first: the common answer is one keystroke. Skip or dismiss still never grants.
+  try{answer=await $.ui.ask(t('ask.question',{actor:who,detail:receipt.detail,command,rules:decision.rules.map(ruleLabel).join('; ')}),[labels.once,labels.session,labels.deny]);}catch{ /* Dismissed/unavailable never grants. */ }
   if(answer!==labels.once && answer!==labels.session){
     const refused=answer===labels.deny;
     if(refused && actor)rememberRefusal(ctx,actor,keys);

@@ -1,4 +1,6 @@
 // Hooks execute in a restricted runtime: keep path operations pure and POSIX.
+// Device files a redirect may target without writing a file.
+const DEVICE_SINKS = /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/;
 const basename = path => path.split('/').at(-1);
 const isAbsolute = path => path.startsWith('/');
 function resolve(base, path) {
@@ -475,7 +477,9 @@ function analyze(command, cwd, depth) {
       if (token.type !== 'redirect') { words.push(token); continue; }
       const destination = segment[++i];
       if (!destination || destination.type !== 'word') { result.unknown = true; continue; }
-      if (token.value.includes('>') && !token.value.endsWith('>&')) add('file.write', destination, true);
+      // Output thrown away or sent to the terminal writes no file.
+      const sink = destination.literal && DEVICE_SINKS.test(destination.value);
+      if (token.value.includes('>') && !token.value.endsWith('>&') && !sink) add('file.write', destination, true);
       if (token.value.includes('<<')) result.unknown = true;
     }
     if (words.length) run(words, directory, depth, true);

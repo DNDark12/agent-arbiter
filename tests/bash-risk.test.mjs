@@ -233,3 +233,10 @@ test('command lines are listed outer and unwrapped for command-pattern rules', (
     ['docker compose exec app php artisan queue:restart', 'php artisan queue:restart']);
   assert.deepEqual(full('bash -c "terraform apply"').commands, ['bash -c terraform apply', 'terraform apply']);
 });
+
+test('redirects to device sinks write no file; a real file still does', () => {
+  for (const command of ['cat a 2>/dev/null', 'ls >/dev/null 2>&1', 'echo x &>/dev/null', 'echo x >/dev/stderr']) {
+    assert.deepEqual(full(command).actions.filter(item => item.action === 'file.write'), [], command);
+  }
+  assert.deepEqual(full('echo x > /dev/nullx').actions.map(item => item.action), ['file.write']);
+});
