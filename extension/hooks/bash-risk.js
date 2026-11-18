@@ -1,6 +1,7 @@
 // Hooks execute in a restricted runtime: keep path operations pure and POSIX.
-// Device files a redirect may target without writing a file.
-const DEVICE_SINKS = /^\/dev\/(?:null|stdout|stderr|tty|fd\/\d+)$/;
+// Device files a redirect may target without writing a file. /dev/stdout,
+// /dev/stderr and /dev/fd/N are left out: they may point at any open file.
+const DEVICE_SINKS = /^\/dev\/(?:null|tty)$/;
 const basename = path => path.split('/').at(-1);
 const isAbsolute = path => path.startsWith('/');
 function resolve(base, path) {

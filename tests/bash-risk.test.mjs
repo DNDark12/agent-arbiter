@@ -235,8 +235,11 @@ test('command lines are listed outer and unwrapped for command-pattern rules', (
 });
 
 test('redirects to device sinks write no file; a real file still does', () => {
-  for (const command of ['cat a 2>/dev/null', 'ls >/dev/null 2>&1', 'echo x &>/dev/null', 'echo x >/dev/stderr']) {
+  for (const command of ['cat a 2>/dev/null', 'ls >/dev/null 2>&1', 'echo x &>/dev/null', 'echo x >/dev/tty']) {
     assert.deepEqual(full(command).actions.filter(item => item.action === 'file.write'), [], command);
   }
-  assert.deepEqual(full('echo x > /dev/nullx').actions.map(item => item.action), ['file.write']);
+  // These may point at any open file, so they still count as writes.
+  for (const command of ['echo x > /dev/nullx', 'echo x >/dev/stdout', 'echo x >/dev/stderr', 'echo x >/dev/fd/3']) {
+    assert.deepEqual(full(command).actions.map(item => item.action), ['file.write'], command);
+  }
 });
