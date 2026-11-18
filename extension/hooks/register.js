@@ -76,7 +76,7 @@ export const register = (on, options = {}) => {
     try { if (!['en', 'vi'].includes(options.language)) setLanguage('auto', await $.env.get('LC_ALL') || await $.env.get('LANG') || ''); }
     catch { /* English stays the fallback. */ }
     try {
-      await $.command.register({ name: 'arbiter', description: 'Open Agent Arbiter settings and controls', argumentHint: 'open panel | off | help', immediate: true });
+      await $.command.register({ name: 'arbiter', description: 'Open Agent Arbiter settings and controls', argumentHint: 'open panel | update | off | help', immediate: true });
       if (!await collecting($)) return next(e);
       const ctx = await context($);
       await emit($, ctx, null, 'session.start', boot, {

@@ -346,7 +346,11 @@ Object.assign(TEXT.en, {
  'settings.changed':'The records changed while confirming. Cancel, refresh and review again.',
  'role.ba':'Requirements / architecture','role.test-design':'Test design','role.dev':'Development','role.test-run':'Test execution','role.review':'Code review','role.security':'Security','role.db':'Database','role.research':'Research','role.explore':'Code exploration','role.orchestrate':'Coordination','role.other':'Other',
  'dimension.completeness':'Completeness','dimension.honesty':'Honesty','dimension.verification':'Verification','dimension.scope':'Scope','dimension.correctness':'Correctness','dimension.performance':'Performance','dimension.security':'Security',
- 'settings.help':'Open /arbiter for settings, rules, violations, agents, lessons and reviews.\nEmergency off: /arbiter off\nOptional command shortcuts: /arbiter help commands\nExperimental hardened runtime: /arbiter help advanced',
+ 'settings.help':'Open /arbiter for settings, rules, violations, agents, lessons and reviews.\nUpdate the plugin: /arbiter update\nEmergency off: /arbiter off\nOptional command shortcuts: /arbiter help commands\nExperimental hardened runtime: /arbiter help advanced',
+ 'update.notInstalled':'This copy of Agent Arbiter was not installed from a marketplace, so /arbiter update cannot update it. Update its source instead.',
+ 'update.failed':'Agent Arbiter update stopped at {step} (exit {code}): {detail}',
+ 'update.current':'Agent Arbiter {version} is already the newest version in the {marketplace} marketplace.',
+ 'update.done':'Agent Arbiter updated from {from} to {to}. Restart Claude Code to load it.',
 });
 Object.assign(TEXT.vi, {
  'pane.tab.citizens':'Agent','settings.title':'Agent Arbiter · Bảng điều khiển','settings.global':'Mọi project trên máy này',
@@ -385,7 +389,11 @@ Object.assign(TEXT.vi, {
  'settings.changed':'Danh sách đã đổi trong lúc xác nhận. Hãy huỷ, tải lại và kiểm tra lần nữa.',
  'role.ba':'Yêu cầu / kiến trúc','role.test-design':'Thiết kế kiểm thử','role.dev':'Phát triển','role.test-run':'Chạy kiểm thử','role.review':'Rà soát code','role.security':'Bảo mật','role.db':'Cơ sở dữ liệu','role.research':'Nghiên cứu','role.explore':'Khảo sát code','role.orchestrate':'Điều phối','role.other':'Khác',
  'dimension.completeness':'Độ đầy đủ','dimension.honesty':'Độ trung thực','dimension.verification':'Kiểm chứng','dimension.scope':'Phạm vi','dimension.correctness':'Tính đúng đắn','dimension.performance':'Hiệu năng','dimension.security':'Bảo mật',
- 'settings.help':'Mở /arbiter để quản lý cài đặt, luật, vi phạm, agent, bài học và đánh giá.\nTắt khẩn cấp: /arbiter off\nLệnh tắt tuỳ chọn: /arbiter help commands\nChế độ gia cố thử nghiệm: /arbiter help advanced',
+ 'settings.help':'Mở /arbiter để quản lý cài đặt, luật, vi phạm, agent, bài học và đánh giá.\nCập nhật plugin: /arbiter update\nTắt khẩn cấp: /arbiter off\nLệnh tắt tuỳ chọn: /arbiter help commands\nChế độ gia cố thử nghiệm: /arbiter help advanced',
+ 'update.notInstalled':'Bản Agent Arbiter này không được cài từ marketplace nên /arbiter update không cập nhật được. Hãy cập nhật từ mã nguồn.',
+ 'update.failed':'Cập nhật Agent Arbiter dừng ở bước {step} (mã thoát {code}): {detail}',
+ 'update.current':'Agent Arbiter {version} đã là bản mới nhất trên marketplace {marketplace}.',
+ 'update.done':'Đã cập nhật Agent Arbiter từ {from} lên {to}. Khởi động lại Claude Code để nạp bản mới.',
 });
 
 export function actionLabel(action){return action==='file.write' || action==='bash.command'?t('action.'+action):t('rule.'+action);}

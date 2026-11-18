@@ -19,12 +19,13 @@ import { projectLessons, lessonEffects, lessonTable, shareLessons, unshareLesson
 import { allProjectScores } from './scoring.js';
 import { ROLES, roleOf } from './roles.js';
 import { reduceReviews, judgeUsage, reviewTable, decideFinding, decideExemplar } from './judge.js';
+import { updatePlugin } from './update.js';
 
 const staleSources = new Set();
 const HUMAN = new Set(['composer', 'bridge']);
 // Default mode needs only the first line. The second belongs to the optional
 // hardened runtime and its signed case ledger.
-const USAGE = 'Usage: /arbiter rules | status | mode enforce|observe|off | docket | release <violation-id> [reason] | release all | citizens [all] | role <agent-type> <role>|auto | lessons [on|off|share <id>|all|unshare <id>|all|library|experiment on|off] | judge [on|off] | finding <ref> confirm|dismiss | exemplar <ref> approve|reject | cleanup | purge [all] | quarantine | verify | evidence <event-id> | help\nExperimental hardened runtime: /arbiter runtime profile|inspect|probe|bootstrap|status | mode hardened <JSON> | grant <JSON> | request <JSON> | grants | revoke <id> | laws | laws approve <JSON> | check <JSON> | record <citizen-id> | verdict <JSON> | appeal <case-id> [JSON] | pardon <case-id> [reason]';
+const USAGE = 'Usage: /arbiter rules | status | mode enforce|observe|off | docket | release <violation-id> [reason] | release all | citizens [all] | role <agent-type> <role>|auto | lessons [on|off|share <id>|all|unshare <id>|all|library|experiment on|off] | judge [on|off] | finding <ref> confirm|dismiss | exemplar <ref> approve|reject | cleanup | purge [all] | update | quarantine | verify | evidence <event-id> | help\nExperimental hardened runtime: /arbiter runtime profile|inspect|probe|bootstrap|status | mode hardened <JSON> | grant <JSON> | request <JSON> | grants | revoke <id> | laws | laws approve <JSON> | check <JSON> | record <citizen-id> | verdict <JSON> | appeal <case-id> [JSON] | pardon <case-id> [reason]';
 function reply(value) { return { text: typeof value === 'string' ? value : canonical(value) }; }
 function key(ctx) { return `${ctx.projectId}:${ctx.sessionId}`; }
 function trusted(e) { return HUMAN.has(e.origin?.kind); }
@@ -131,11 +132,13 @@ export async function handleCourt($, e) {
   const split = args.indexOf(' ');
   const command = split<0 ? args : args.slice(0,split);
   const body = split<0 ? '' : args.slice(split+1).trim();
-  const mutation = ['off','mode','grant','request','revoke','release','role','finding','exemplar','purge'].includes(command) || (command==='judge' && ['on','off'].includes(body)) || (command==='lessons' && /^(on|off|share|unshare|experiment)(\s|$)/.test(body)) || (command==='laws' && body.startsWith('approve')) || ['cleanup','quarantine'].includes(command) || (command==='runtime' && !body.startsWith('profile') && !['status','inspect'].includes(body));
+  const mutation = ['off','mode','grant','request','revoke','release','role','finding','exemplar','purge','update'].includes(command) || (command==='judge' && ['on','off'].includes(body)) || (command==='lessons' && /^(on|off|share|unshare|experiment)(\s|$)/.test(body)) || (command==='laws' && body.startsWith('approve')) || ['cleanup','quarantine'].includes(command) || (command==='runtime' && !body.startsWith('profile') && !['status','inspect'].includes(body));
   if (mutation && !trusted(e)) return reply(t('cmd.human'));
   // Emergency switch takes effect even when context or disk is unavailable.
   if (command==='off' || (command==='mode' && body==='off')) setEmergencyOff(true);
   try {
+    // Needs no project: it updates the installed plugin itself.
+    if(command==='update')return reply(await updatePlugin($));
     const ctx = await observationContext($,{recoverPreferences:command==='' || command==='rules',authentication:command==='runtime' || command==='mode' && (body.startsWith('hardened') || body.startsWith('enforce '))});
     const source = {kind:'command',origin:e.origin?.kind || 'unclassified',id:crypto.randomUUID()};
     if(command==='' || command==='rules'){

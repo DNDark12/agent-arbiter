@@ -61,7 +61,7 @@ Existing commands still work as optional shortcuts. `/arbiter rules` opens Rules
 
 ## Update
 
-From a terminal, refresh the marketplace before updating the plugin:
+Run `/arbiter update` in a session: it refreshes the marketplace, then updates the plugin. From a terminal, the same two steps are:
 
 ```sh
 claude plugin marketplace update agent-arbiter
