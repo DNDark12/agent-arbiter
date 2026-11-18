@@ -349,6 +349,7 @@ Object.assign(TEXT.en, {
  'settings.help':'Open /arbiter for settings, rules, violations, agents, lessons and reviews.\nUpdate the plugin: /arbiter update\nEmergency off: /arbiter off\nOptional command shortcuts: /arbiter help commands\nExperimental hardened runtime: /arbiter help advanced',
  'update.notInstalled':'This copy of Agent Arbiter was not installed from a marketplace, so /arbiter update cannot update it. Update its source instead.',
  'update.failed':'Agent Arbiter update stopped at {step} (exit {code}): {detail}',
+ 'update.noCli':'Agent Arbiter could not find the Claude Code CLI. Update from a terminal or the Plugins menu instead. ({detail})',
  'update.current':'Agent Arbiter {version} is already the newest version in the {marketplace} marketplace.',
  'update.done':'Agent Arbiter updated from {from} to {to}. Restart Claude Code to load it.',
 });
@@ -392,6 +393,7 @@ Object.assign(TEXT.vi, {
  'settings.help':'Mở /arbiter để quản lý cài đặt, luật, vi phạm, agent, bài học và đánh giá.\nCập nhật plugin: /arbiter update\nTắt khẩn cấp: /arbiter off\nLệnh tắt tuỳ chọn: /arbiter help commands\nChế độ gia cố thử nghiệm: /arbiter help advanced',
  'update.notInstalled':'Bản Agent Arbiter này không được cài từ marketplace nên /arbiter update không cập nhật được. Hãy cập nhật từ mã nguồn.',
  'update.failed':'Cập nhật Agent Arbiter dừng ở bước {step} (mã thoát {code}): {detail}',
+ 'update.noCli':'Agent Arbiter không tìm thấy Claude Code CLI. Hãy cập nhật từ terminal hoặc menu Plugins. ({detail})',
  'update.current':'Agent Arbiter {version} đã là bản mới nhất trên marketplace {marketplace}.',
  'update.done':'Đã cập nhật Agent Arbiter từ {from} lên {to}. Khởi động lại Claude Code để nạp bản mới.',
 });
