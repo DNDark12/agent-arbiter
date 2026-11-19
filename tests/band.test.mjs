@@ -2,12 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {sprite,ROLES,ROLE_EMOJI} from '../plugins/agent-arbiter/hooks/sprites.js';
 import {barText,barSvg,roleIcon,fraction,pillTrackSvg,pillWidth,agentStripSvg} from '../plugins/agent-arbiter/hooks/visuals.js';
-import {bandRows,drawRow,agentStrips} from '../plugins/agent-arbiter/hooks/band.js';
-import {statusCounts,bandAgents} from '../plugins/agent-arbiter/hooks/status.js';
+import {bandRows,drawRow,agentStrips,registerBand} from '../plugins/agent-arbiter/hooks/band.js';
+import {statusCounts,bandAgents,refreshStatus} from '../plugins/agent-arbiter/hooks/status.js';
 import {progressItems,bandDetail,bandDetailModel} from '../plugins/agent-arbiter/hooks/progress-view.js';
 import {noteDecision,decisionNote,forgetNotes} from '../plugins/agent-arbiter/hooks/notes.js';
 import {setLanguage} from '../plugins/agent-arbiter/hooks/i18n.js';
 import {ROLES as AGENT_ROLES} from '../plugins/agent-arbiter/hooks/roles.js';
+import {world} from './fixtures.mjs';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {saveProjectSettings} from '../plugins/agent-arbiter/hooks/project-rules.js';
+import {reportedOperation,saveChecklist} from '../plugins/agent-arbiter/hooks/checklist.js';
+import {emit} from '../plugins/agent-arbiter/hooks/events.js';
 
 // A drawing table that records what was drawn, as $.ui.resolve's would.
 const table=(withSvg=true)=>{
@@ -219,4 +224,41 @@ test('the agents bar counts this session’s finished agents and lists them with
   assert.ok(alts.some(alt=>/reviewer · haiku-4-5 · 4 call\(s\) · 1m 0s · 92\/100/.test(alt)),alts.join('|'));
   const model=bandDetailModel({agents},'agents');
   assert.deepEqual([model.waiting.length,model.settled.length],[1,1]);
+});
+
+test('the collapsed band puts waiting items, running agents and the unfinished checklist ahead of counters',async t=>{
+  const {$}=await world(t),ctx=await observationContext($);
+  $.ui={...$.ui,resolve:()=>table(),invalidate(){}};
+  const hooks=[];
+  registerBand((...args)=>hooks.push(args));
+  const render=hooks.find(([event,match])=>event==='ui.render' && match.component==='AbovePrompt')[2];
+  const draw=()=>render($,{surface:'desktop',props:{bodyColumns:90,maxRows:8,hasSurvey:false}},()=>null);
+  const rowKeys=tree=>find(tree,'Box').map(node=>node.props.key).filter(key=>['jail','reviews','agents','checklist','judge'].includes(key));
+  const openList=tree=>find(tree,'Button').find(node=>node.props.key==='band-list').props.onPress();
+  await saveProjectSettings($,ctx,{mode:'observe',checklist:true});
+  const review=await emit($,ctx,null,'judge.review','fixture',{scores:{honesty:2},exemplar:{worthy:false},
+    findings:[{claim:'QA check',evidence:'Synthetic fixture',severity:'high',dimension:'honesty'}]});
+  await emit($,ctx,null,'judge.decision','decided',{reviewId:review,finding:0,decision:'dismissed',source:{origin:'ui'}});
+  await refreshStatus($,ctx);
+  assert.equal(await draw(),null,'judge usage alone does not open the band');
+
+  await saveChecklist($,ctx,'checklist',reportedOperation({tasks:[{id:'one',label:'Verify',status:'in_progress'}]}));
+  await refreshStatus($,ctx);
+  assert.deepEqual(rowKeys(await draw()),['checklist']);
+  openList(await draw());
+  assert.ok(rowKeys(await draw()).includes('judge'),'judge usage stays available in the expanded list');
+  openList(await draw());
+
+  await emit($,ctx,null,'spawn.result','agent',{childAgentId:'a',status:'started',citizen:{name:'coder'}});
+  await refreshStatus($,ctx);
+  assert.deepEqual(rowKeys(await draw()),['agents']);
+
+  const pending=await emit($,ctx,null,'judge.review','pending',{scores:{honesty:2},exemplar:{worthy:false},
+    findings:[{claim:'Unresolved QA check',evidence:'Synthetic fixture',severity:'high',dimension:'honesty'}]});
+  await refreshStatus($,ctx);
+  assert.deepEqual(rowKeys(await draw()),['reviews']);
+  await emit($,ctx,null,'judge.decision','handled',{reviewId:pending,finding:0,decision:'dismissed',source:{origin:'ui'}});
+  await emit($,ctx,'a','turn.complete','finished',{reason:'answer',durationMs:1000});
+  await refreshStatus($,ctx);
+  assert.deepEqual(rowKeys(await draw()),['checklist'],'a recently finished agent makes room for unfinished work');
 });

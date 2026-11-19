@@ -65,10 +65,8 @@ async function openAtWaiting($) {
   } catch { /* The panel opens from /arbiter as well. */ }
 }
 
-// The band's bars, most urgent first. Bars that wait for the person (a
-// detention, review decisions) decide whether the band shows at all and which
-// bar the small band shows; the session's activity (approval asks, the judge's
-// day) joins only the full list. The name stays left of the track and the
+// The band's bars, in expanded-list order. The collapsed band chooses from
+// waiting and live rows below. The name stays left of the track and the
 // count is in the pill. A detention shows a count without a total.
 export function bandRows(snapshot, now = Date.now(), asks = { asked: 0, allowed: 0 }) {
   const rows = [];
@@ -90,7 +88,7 @@ export function bandRows(snapshot, now = Date.now(), asks = { asked: 0, allowed:
   const agents = snapshot.agents ?? [];
   if (bandAgents({ agents }, now).length) {
     const done = agents.filter(agent => agent.status !== 'running').length;
-    rows.push({ key: 'agents', waiting: false, live: true, color: COLORS.clean, pill: t('band.chipAgents', { done, total: agents.length }),
+    rows.push({ key: 'agents', waiting: false, live: true, running: done < agents.length, color: COLORS.clean, pill: t('band.chipAgents', { done, total: agents.length }),
       alt: t('band.agentsFigure', { done, total: agents.length }), stat: '', value: done, max: agents.length, role: 'main' });
   }
   if (asks.asked) rows.push({
@@ -232,7 +230,7 @@ function sessionRows(snapshot, ctx, now) {
     const closed = ctx.preferences.autoCloseChecklist && tasks.endedAt !== null && now - tasks.endedAt >= 30000;
     if (tasks.total && !closed) {
       const label = t('progress.tasksCount', { ...tasks, percent: Math.floor(tasks.completed / tasks.total * 100) });
-      rows.push({ key: 'checklist', waiting: false, live: true, role: 'main', color: tasks.failed ? COLORS.jail : COLORS.clean,
+      rows.push({ key: 'checklist', waiting: false, live: true, running: tasks.endedAt === null, role: 'main', color: tasks.failed ? COLORS.jail : COLORS.clean,
         pill: label, alt: t('progress.checklist') + ' · ' + label, value: tasks.completed, max: tasks.total, endedAt: tasks.endedAt });
     }
   }
@@ -259,8 +257,9 @@ export function registerBand(on) {
     const now = Date.now(), rows = sessionRows(snapshot, ctx, now);
     const agents = (snapshot.agents ?? []).map(agent => ({ ...agent, activity: currentActivity(ctx, agent.agentId) }));
     const openRun = agent => void openRulesPane($, ctx, 'citizens', { kind: 'run', sessionId: ctx.sessionId, agentId: agent?.agentId ?? null }).catch(() => {});
-    // Shown while something waits or a subagent works; the activity bars ride along when open.
-    if (!rows.some(row => row.waiting || row.live)) { tick($, false); return next(e); }
+    // Waiting items lead, then unfinished work, then recent completions.
+    const compact = rows.find(row => row.waiting) ?? rows.find(row => row.running) ?? rows.find(row => row.live);
+    if (!compact) { tick($, false); return next(e); }
     // A working agent's time moves: redraw now and then while one runs.
     tick($, agents.some(agent => agent.status === 'running') ||
       ctx.preferences.autoCloseChecklist === true && rows.some(row => row.key === 'checklist' && row.endedAt !== null));
@@ -278,7 +277,7 @@ export function registerBand(on) {
       icon('band-hide', '×', () => hideBand($, ctx)),
     ] });
     const gap = svgOf(h, e.surface) ? 1 : 0, fit = gap ? Math.floor((maxRows + 1) / 2) : maxRows;
-    const columns = bodyColumns ?? 80, visible = selected ? [selected] : rows.slice(0, expanded ? Math.max(1, fit) : 1);
+    const columns = bodyColumns ?? 80, visible = selected ? [selected] : expanded ? rows.slice(0, Math.max(1, fit)) : [compact];
     const free = columns - 4 - BUTTON_COLUMNS;
     // Every bar keeps one length, open or closed: labels take the widest label's room.
     const widestLabel = Math.max(...rows.map(row => columnsOf(row.max ? progressTitle(row.key) : row.pill)));
