@@ -1,8 +1,8 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="extension/icon-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="extension/icon-light.png">
-    <img src="extension/icon.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
+    <source media="(prefers-color-scheme: dark)" srcset="plugins/agent-arbiter/icon-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="plugins/agent-arbiter/icon-light.png">
+    <img src="plugins/agent-arbiter/icon.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
   </picture>
 </p>
 
@@ -41,6 +41,8 @@ Requires Claude Code 2.1.325 or later, on macOS or Linux.
 - **Discipline.** A warning for the main agent; a fine, then detention, for a subagent. A detained agent type restarts on another model.
 - **Scores and lessons.** Compare main agent turns and subagent runs by model, time, token usage and rule history in the project or across projects. Quality is grouped by role and difficulty with the number of scored reviews. New subagents can receive lessons from earlier violations.
 - **Judge.** Advisory reviews of main agent turns and subagent runs with recorded work evidence. A finding counts only when you confirm it.
+- **Band and notes.** A band above the prompt shows only what waits for you: detained agents, and review decisions as a bar of decided against waiting. **Open** goes straight to them without a line in the chat, and a toast says when something new arrives. Under each tool call Arbiter stopped to check, a short note names the rule and what came of it. The desktop app's right-click menu opens the panel too.
+- **Role icons.** Each agent role has a pixel icon that idles with a small bob and blink, held still when your system asks for reduced motion; a detained agent stands behind bars. Scores, quality and clean runs are drawn as bars against their known totals.
 
 ## Usage
 
@@ -106,9 +108,9 @@ Agent Arbiter catches agent mistakes. It is not a security boundary against an a
 ## Development
 
 ```sh
-claude --plugin-dir "$(pwd)/extension"
+claude --plugin-dir "$(pwd)/plugins/agent-arbiter"
 node --test tests/*.test.mjs
-claude plugin test extension
+claude plugin test plugins/agent-arbiter
 ```
 
 ## License

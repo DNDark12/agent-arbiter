@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { handleCourt } from '../extension/hooks/controls.js';
+import { handleCourt } from '../plugins/agent-arbiter/hooks/controls.js';
 const exec=promisify(execFile);
 export async function world(t) {
  const root=await fs.mkdtemp(join(tmpdir(),'court-phase2-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));

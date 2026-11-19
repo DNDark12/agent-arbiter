@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { storageRoot, observationContext } from '../extension/hooks/context.js';
+import { storageRoot, observationContext } from '../plugins/agent-arbiter/hooks/context.js';
 test('stable data path respects custom config and does not depend on install version', async () => {
  const $={env:{get:async k=>k==='CLAUDE_CONFIG_DIR'?'/custom':null},plugin:{root:'/cache/v1'}};
  assert.equal(await storageRoot($),'/custom/plugins/data/agent-arbiter/v1');
@@ -13,7 +13,7 @@ test('worktrees share repository identity while checkout roots stay separate', a
 });
 
 test('Arbiter declares itself inactive on Windows and where no POSIX config folder exists',async()=>{
- const {platformSupported}=await import('../extension/hooks/context.js');
+ const {platformSupported}=await import('../plugins/agent-arbiter/hooks/context.js');
  const env=values=>({env:{get:async key=>values[key]}});
  assert.equal(await platformSupported(env({HOME:'/Users/a'})),true);
  assert.equal(await platformSupported(env({OS:'Windows_NT',HOME:'C:\\Users\\a'})),false);

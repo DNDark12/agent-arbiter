@@ -7,7 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const exec=promisify(execFile);
 
-async function rules() { return import('../extension/hooks/project-rules.js'); }
+async function rules() { return import('../plugins/agent-arbiter/hooks/project-rules.js'); }
 async function fixture(t) {
  const archiveRoot=await fs.mkdtemp(join(tmpdir(),'arbiter-rules-'));t.after(()=>fs.rm(archiveRoot,{recursive:true,force:true}));
  const ctx={archiveRoot,projectId:'fixture-project'};
@@ -70,9 +70,9 @@ function nativeSurface() {
 }
 
 test('native rules pane uses current settings and reports failures without stale overwrites',async t=>{
- const {openRulesPane,registerRulesPane}=await import('../extension/hooks/rules-pane.js');
+ const {openRulesPane,registerRulesPane}=await import('../plugins/agent-arbiter/hooks/rules-pane.js');
  const {loadProjectSettings,saveProjectSettings}=await rules();
- const {world}=await import('./fixtures.mjs'),{observationContext}=await import('../extension/hooks/context.js');
+ const {world}=await import('./fixtures.mjs'),{observationContext}=await import('../plugins/agent-arbiter/hooks/context.js');
  const {$}=await world(t),ctx=await observationContext($);
  const hooks=[];registerRulesPane((...args)=>{hooks.push(args);return {catch(){}}});
  const {constructors,flatten}=nativeSurface();let invalidated=0;

@@ -1,11 +1,11 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
-import * as runtime from '../extension/hooks/runtime.js';
+import * as runtime from '../plugins/agent-arbiter/hooks/runtime.js';
 import {driveProbe} from './protected-fixture.mjs';
 import {world} from './fixtures.mjs';
-import {protectedPaths,strictProfile} from '../extension/hooks/runtime-policy.js';
-import {digest} from '../extension/hooks/ledger.js';
+import {protectedPaths,strictProfile} from '../plugins/agent-arbiter/hooks/runtime-policy.js';
+import {digest} from '../plugins/agent-arbiter/hooks/ledger.js';
 async function fixture(t){
  const w=await world(t);w.root=await fs.realpath(w.root);const ctx={configRoot:w.root,pluginRoot:w.root+'/extension',projectRoot:w.root+'/project',sessionId:'s'};
  await fs.mkdir(ctx.pluginRoot);await fs.mkdir(ctx.projectRoot);

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, createHash } from 'node:crypto';
-import { canonical, digest } from '../extension/hooks/ledger.js';
-import * as auth from '../extension/hooks/auth.js';
+import { canonical, digest } from '../plugins/agent-arbiter/hooks/ledger.js';
+import * as auth from '../plugins/agent-arbiter/hooks/auth.js';
 
 const secret = '0123456789abcdef'.repeat(4);
 const otherSecret = 'fedcba9876543210'.repeat(4);

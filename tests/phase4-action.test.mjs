@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as action from '../extension/hooks/action.js';
+import * as action from '../plugins/agent-arbiter/hooks/action.js';
 
 const ctx = { root: '/project', environment: 'local', branch: 'feature/gate' };
 const event = (tool, fields = {}) => ({ tool, agentId: 'agent-one', tool_use_id: 'tool-one', ...fields });

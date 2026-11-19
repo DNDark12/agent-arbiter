@@ -1,10 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import * as gate from '../extension/hooks/gate.js';
+import * as gate from '../plugins/agent-arbiter/hooks/gate.js';
 import {protectedWorld} from './protected-fixture.mjs';
 import {world} from './fixtures.mjs';
-import {emit,readProject} from '../extension/hooks/events.js';
-import {digest} from '../extension/hooks/ledger.js';
+import {emit,readProject} from '../plugins/agent-arbiter/hooks/events.js';
+import {digest} from '../plugins/agent-arbiter/hooks/ledger.js';
 async function active(t){
  const w=await protectedWorld(t);await w.command('runtime probe');
  await w.command('mode enforce '+JSON.stringify({finePoints:2,replacementModels:['claude-alternative-full-id'],grantsOnly:true,trustedHost:true,noOutsideWriters:true}));
@@ -17,7 +17,7 @@ async function request(w,id='call'){
 }
 test('gate preserves unconfigured observe and refuses protected execution before OS proof',async t=>{
  assert.equal(typeof gate.enforceTool,'function');const w=await world(t);
- assert.equal(await gate.enforceTool(w.$,await import('../extension/hooks/context.js').then(m=>m.observationContext(w.$)),{tool:'Write'},{},null),null);
+ assert.equal(await gate.enforceTool(w.$,await import('../plugins/agent-arbiter/hooks/context.js').then(m=>m.observationContext(w.$)),{tool:'Write'},{},null),null);
  const protectedW=await protectedWorld(t);assert.ok((await gate.enforceTool(protectedW.$,protectedW.ctx,{tool:'Bash',command:'true'},{},null)).deny);
 });
 test('matching scoped signed grant runs without Arbiter asking again',async t=>{
@@ -48,7 +48,7 @@ test('production integration never guesses a Bash environment from workspace loc
 });
 test('probation narrows rights by asking even when a reusable grant matches, without punishing Deny',async t=>{
  const w=await active(t),r=await request(w,'probation');
- const {compileRules}=await import('../extension/hooks/statutes.js');const law=(await compileRules()).rules.find(rule=>rule.action==='source.write');
+ const {compileRules}=await import('../plugins/agent-arbiter/hooks/statutes.js');const law=(await compileRules()).rules.find(rule=>rule.action==='source.write');
  const result=JSON.parse((await w.command('verdict '+JSON.stringify({citizenId:w.citizenId,actor:{sessionId:w.ctx.sessionId,agentId:'a'},law:{id:law.id,version:law.version},evidenceIds:[r.id],outcome:'guilty',reason:'Human probation fixture',effects:{trustDelta:0,restrictions:['probation'],lessonIds:[]}}))).text);
  await w.command('grant '+JSON.stringify({action:'source.write',target:'a.js',environment:'local',agentId:'a'}));
  let asked=0;w.$.ui.ask=async()=>{asked++;return 'Deny'};

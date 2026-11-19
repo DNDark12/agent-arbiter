@@ -15,6 +15,7 @@ import {reduceCases} from './cases.js';
 import {recordHardLaw} from './court.js';
 import {actorSentence,stopForHandover} from './prison.js';
 import {worktreeRoots} from './forensics.js';
+import {noteDecision} from './notes.js';
 
 const block=reason=>({deny:'Agent Arbiter: '+reason});
 const turnBoundaries=new Map();
@@ -268,6 +269,7 @@ async function recordDecision($,ctx,event,receipt,outcome){
   // The ledger keeps a command's text only for a violation or a refusal.
   const {quietDetail,...stored}=receipt;
   if(!['denied-by-rule','retry-after-refusal','refused'].includes(outcome))stored.detail=quietDetail;
+  noteDecision(event.tool_use_id,receipt.ruleIds,outcome);
   try{await emit($,ctx,event.agentId || null,'rule.decision',event.tool_use_id || crypto.randomUUID(),{...stored,outcome,allowed:outcome==='approved' || outcome==='session-allow'});}
   catch{ /* Evidence failure never substitutes for consent or penalizes a normal tool. */ }
 }

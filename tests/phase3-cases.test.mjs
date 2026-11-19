@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canonical, digest } from '../extension/hooks/ledger.js';
+import { canonical, digest } from '../plugins/agent-arbiter/hooks/ledger.js';
 
-import { caseId, normalizeJudgment, reduceCases as replayCases } from '../extension/hooks/cases.js';
+import { caseId, normalizeJudgment, reduceCases as replayCases } from '../plugins/agent-arbiter/hooks/cases.js';
 const id = number => number.toString(16).padStart(64, '0');
 const projectId = id(1);
 const citizenId = id(2);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const parser = await import('../extension/hooks/bash-risk.js').catch(error => {
+const parser = await import('../plugins/agent-arbiter/hooks/bash-risk.js').catch(error => {
   if (error.code !== 'ERR_MODULE_NOT_FOUND') throw error;
   return {};
 });

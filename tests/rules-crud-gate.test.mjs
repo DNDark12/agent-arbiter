@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {world} from './fixtures.mjs';
-import {observationContext} from '../extension/hooks/context.js';
-import {saveProjectSettings,updateUserRule,loadProjectSettings} from '../extension/hooks/project-rules.js';
-import {enforceTool} from '../extension/hooks/gate.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {saveProjectSettings,updateUserRule,loadProjectSettings} from '../plugins/agent-arbiter/hooks/project-rules.js';
+import {enforceTool} from '../plugins/agent-arbiter/hooks/gate.js';
 test('editing a custom rule invalidates its earlier session consent',async t=>{
  const w=await world(t);w.$.plugin.root=w.root+'/extension';w.$.session.id=async()=>w.root;await w.command('mode enforce');const ctx=await observationContext(w.$);
  const rule={id:'user:edit',action:'file.write',target:'src/**',effect:'ask'};

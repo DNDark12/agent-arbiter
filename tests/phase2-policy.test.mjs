@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeGrant, grantMatches, reduceGrants } from '../extension/hooks/grants.js';
-import { compileRules, evaluate } from '../extension/hooks/statutes.js';
-import { sentencing } from '../extension/hooks/sentencing.js';
+import { normalizeGrant, grantMatches, reduceGrants } from '../plugins/agent-arbiter/hooks/grants.js';
+import { compileRules, evaluate } from '../plugins/agent-arbiter/hooks/statutes.js';
+import { sentencing } from '../plugins/agent-arbiter/hooks/sentencing.js';
 
 const now = 1000;
 const context = { projectId: 'project', sessionId: 'session' };

@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import * as prison from '../extension/hooks/prison.js';
-import {reduceCases} from '../extension/hooks/cases.js';
+import * as prison from '../plugins/agent-arbiter/hooks/prison.js';
+import {reduceCases} from '../plugins/agent-arbiter/hooks/cases.js';
 
 const id=n=>n.toString(16).padStart(64,'0');
 const ctx={projectId:id(1),sessionId:'current'};

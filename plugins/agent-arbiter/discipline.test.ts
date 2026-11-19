@@ -132,7 +132,9 @@ test('native lessons reach the next agent of the same type; the pane shows score
  await $.command.run({command:'arbiter',args:'rules'})
  const ui=await $.ui.mount({plugin:'agent-arbiter',surface:'desktop',component:'Pane',requestId:'arbiter-rules',props:{title:'Agent Arbiter',isFocused:true,bodyColumns:80,placement:'inline'}})
  await ui.press({key:'tab-citizens'})
- expect((await ui.find({text:'trust 90',exact:false}))?.text).toContain('runs 2 (clean 1)')
+ // Levels are drawn as bars with their figures beside them.
+ expect((await ui.find({type:'Text',text:'90/100'}))?.text).toBe('90/100')
+ expect((await ui.find({type:'Text',text:'1/2 runs'}))?.text).toBe('1/2 runs')
  await ui.select({key:'agent-section',value:'lessons'})
  await ui.press({key:'share:'+lessonId})
  await ui.press({key:'confirm-share'})

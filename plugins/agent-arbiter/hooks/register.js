@@ -1,4 +1,5 @@
 import {registerRulesPane} from './rules-pane.js';
+import {registerBand} from './band.js';
 import { enforceTool, endedTurn, fallbackTool } from './gate.js';
 import { protectionArmed, consumeRuntimeProbe, completeRuntimeProbe } from './runtime.js';
 import { classifyTool } from './action.js';
@@ -72,6 +73,7 @@ export const register = (on, options = {}) => {
   setMasterEnabled(options.enabled);
   setLanguage(options.language);
   registerRulesPane(on,()=>failures);
+  registerBand(on);
   on('session.start', async ($, e, next) => {
     try { if (!['en', 'vi'].includes(options.language)) setLanguage('auto', await $.env.get('LC_ALL') || await $.env.get('LANG') || ''); }
     catch { /* English stays the fallback. */ }

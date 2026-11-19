@@ -2,11 +2,11 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import {world} from './fixtures.mjs';
-import {emit,readProject} from '../extension/hooks/events.js';
-import {digest} from '../extension/hooks/ledger.js';
-import {observationContext} from '../extension/hooks/context.js';
-import {caseId,reduceCases} from '../extension/hooks/cases.js';
-import {compileRules} from '../extension/hooks/statutes.js';
+import {emit,readProject} from '../plugins/agent-arbiter/hooks/events.js';
+import {digest} from '../plugins/agent-arbiter/hooks/ledger.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {caseId,reduceCases} from '../plugins/agent-arbiter/hooks/cases.js';
+import {compileRules} from '../plugins/agent-arbiter/hooks/statutes.js';
 async function fixture(t){
  const w=await world(t),ctx=await observationContext(w.$),citizenId=await digest('review-citizen');
  await emit(w.$,ctx,null,'spawn.result','spawn-review',{status:'started',childAgentId:'a',citizen:{id:citizenId}});
@@ -88,7 +88,7 @@ test('an observed source change stays on hold after module restart until human r
  await fs.appendFile(path,' ');
  await command('laws');
  await fs.writeFile(path,original);
- const {handleCourt}=await import('../extension/hooks/controls.js?restart='+crypto.randomUUID());
+ const {handleCourt}=await import('../plugins/agent-arbiter/hooks/controls.js?restart='+crypto.randomUUID());
  const args='check '+JSON.stringify({action:'git.push',target:'main',environment:'production',requestedApproval:true});
  const result=JSON.parse((await handleCourt($,{args,origin:{kind:'composer'}})).text);
  assert.equal(result.decision.reason,'law-source-pending-review');

@@ -1,13 +1,13 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import * as spawn from '../extension/hooks/spawn.js';
+import * as spawn from '../plugins/agent-arbiter/hooks/spawn.js';
 import {protectedWorld} from './protected-fixture.mjs';
 import {world} from './fixtures.mjs';
-import {observationContext} from '../extension/hooks/context.js';
-import {bindCitizen} from '../extension/hooks/citizens.js';
-import {emit,readProject} from '../extension/hooks/events.js';
-import {compileRules} from '../extension/hooks/statutes.js';
-import {canonical,digest,publish,readLedger} from '../extension/hooks/ledger.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {bindCitizen} from '../plugins/agent-arbiter/hooks/citizens.js';
+import {emit,readProject} from '../plugins/agent-arbiter/hooks/events.js';
+import {compileRules} from '../plugins/agent-arbiter/hooks/statutes.js';
+import {canonical,digest,publish,readLedger} from '../plugins/agent-arbiter/hooks/ledger.js';
 
 const input={subagentType:'worker',provider:{plugin:'local',tier:'project'},prompt:'Continue the requested source task.',
  model:'claude-model-one',background:true,fork:false,cwd:'/fixed',description:'Fixed description',tool_use_id:'spawn-call'};
@@ -206,7 +206,7 @@ test('concurrent replacements atomically reserve exactly one signed per case wri
 test('a persisted reservation also blocks a fresh module and changed definition handover',async t=>{
  const w=await active(t);await sentence(w);
  assert.ok((await spawn.enforceSpawn(w.$,w.ctx,input,candidate)).input);
- const fresh=await import('../extension/hooks/spawn.js?reservation-restart='+crypto.randomUUID());
+ const fresh=await import('../plugins/agent-arbiter/hooks/spawn.js?reservation-restart='+crypto.randomUUID());
  const retry=await fresh.enforceSpawn(w.$,w.ctx,input,{...candidate,definitionHash:'f'.repeat(64)});
  assert.match(retry.deny,/reserv|human review/i);
 });

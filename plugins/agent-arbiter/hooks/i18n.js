@@ -240,6 +240,13 @@ Object.assign(TEXT.en, {
  'cmd.status':'Agent Arbiter — {mode}\nEvents: {events}; runs: {runs}; tool calls: {calls}\nInvalid: {invalid}; conflicts: {conflicts}; unfinished parts: {parts}\nDetained agents: {detained}; findings to decide: {pending}\nCollection failures in this hook process: {failures}',
  'cmd.cleanup':'Expired private parts removed: {parts}\nRoutine records older than {days} days removed: {removed}',
  'statusline':'Arbiter: {detained} detained · {pending} to review',
+ 'band.jail':'Detained','band.jailFigure':'{count} agent(s) detained','band.jailShort':'{count} held','band.jailAlt':'Agent detained',
+ 'band.reviews':'Reviews','band.reviewFigure':'{decided}/{total} decided · {pending} waiting','band.reviewShort':'{decided}/{total} · {pending} waiting','band.reviewMinimal':'{pending} waiting',
+ 'band.open':'Open',
+ 'toast.detained':'Agent Arbiter · {count} agent(s) detained. Open the band to see why.','toast.pending':'Agent Arbiter · {count} review decision(s) waiting.',
+ 'note.approved':'allowed','note.session-allow':'allowed for the session','note.refused':'you refused','note.unanswered':'no answer, not run','note.denied-by-rule':'denied by rule','note.retry-after-refusal':'denied: retried after a refusal','note.other':'checked','note.custom':'custom rule',
+ 'menu.waiting':'{count} waiting','menu.hint':'Rules, scores, reviews',
+ 'score.trust':'Trust','score.quality':'Quality','score.clean':'Clean runs','score.warnings':'Warnings','score.outOf100':'{value}/100','score.notReviewed':'Not reviewed','score.cleanFigure':'{clean}/{runs} runs','score.runs':'{runs} runs','score.turns':'{runs} turns','score.warningsFigure':'{count}',
 });
 Object.assign(TEXT.vi, {
  'cmd.human':'Cần người dùng gõ trực tiếp; plugin, SDK hay lời trích dẫn không cấp được quyền.',
@@ -274,6 +281,13 @@ Object.assign(TEXT.vi, {
  'cmd.status':'Agent Arbiter — {mode}\nBản ghi: {events}; lần chạy: {runs}; lần gọi tool: {calls}\nHỏng: {invalid}; xung đột: {conflicts}; file tạm dở: {parts}\nAgent đang bị giam: {detained}; finding chờ quyết: {pending}\nLỗi thu thập trong tiến trình này: {failures}',
  'cmd.cleanup':'File tạm hết hạn đã xoá: {parts}\nBản ghi thường quá {days} ngày đã xoá: {removed}',
  'statusline':'Arbiter: {detained} bị giam · {pending} chờ xét',
+ 'band.jail':'Tạm giam','band.jailFigure':'{count} agent bị giam','band.jailShort':'{count} bị giam','band.jailAlt':'Agent bị giam',
+ 'band.reviews':'Đánh giá','band.reviewFigure':'{decided}/{total} đã xử lý · {pending} chờ','band.reviewShort':'{decided}/{total} · {pending} chờ','band.reviewMinimal':'{pending} chờ',
+ 'band.open':'Mở',
+ 'toast.detained':'Agent Arbiter · {count} agent bị giam. Mở band để xem lý do.','toast.pending':'Agent Arbiter · {count} đánh giá chờ bạn quyết định.',
+ 'note.approved':'đã cho phép','note.session-allow':'cho phép cả phiên','note.refused':'bạn từ chối','note.unanswered':'không trả lời, không chạy','note.denied-by-rule':'luật chặn','note.retry-after-refusal':'chặn vì thử lại sau khi bị từ chối','note.other':'đã kiểm tra','note.custom':'luật tuỳ chỉnh',
+ 'menu.waiting':'{count} mục chờ','menu.hint':'Luật, điểm, đánh giá',
+ 'score.trust':'Tín nhiệm','score.quality':'Chất lượng','score.clean':'Chạy sạch','score.warnings':'Cảnh cáo','score.outOf100':'{value}/100','score.notReviewed':'Chưa xét','score.cleanFigure':'{clean}/{runs} lượt','score.runs':'{runs} lượt','score.turns':'{runs} lượt','score.warningsFigure':'{count}',
 });
 
 Object.assign(TEXT.en, {

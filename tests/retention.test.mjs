@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {world} from './fixtures.mjs';
-import {observationContext} from '../extension/hooks/context.js';
-import {readProject} from '../extension/hooks/events.js';
-import {publish,digest} from '../extension/hooks/ledger.js';
-import {prunable,pruneProject,maintain,RETENTION_DAYS} from '../extension/hooks/retention.js';
-import * as judge from '../extension/hooks/judge.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {readProject} from '../plugins/agent-arbiter/hooks/events.js';
+import {publish,digest} from '../plugins/agent-arbiter/hooks/ledger.js';
+import {prunable,pruneProject,maintain,RETENTION_DAYS} from '../plugins/agent-arbiter/hooks/retention.js';
+import * as judge from '../plugins/agent-arbiter/hooks/judge.js';
 
 const DAY=24*60*60*1000;
 async function fresh(t){
@@ -51,7 +51,7 @@ test('upkeep runs at most once a day, never touches a hardened ledger, and clean
  assert.equal(await maintain(w.$,ctx),null,'already ran today');
  assert.equal((await maintain(w.$,ctx,Date.now()+DAY+1)).removed,1);
  await put(w,ctx,'turn.complete',70);
- const {register}=await import('../extension/hooks/register.js');
+ const {register}=await import('../plugins/agent-arbiter/hooks/register.js');
  const hooks={};register((name,matcher,hook)=>{hooks[name]=hook ?? matcher;return {catch(){}}});
  w.$.command={register:async()=>{}};w.$.ui.log=async()=>{};w.$.ui.invalidate=()=>{};
  const text=(await hooks['command.run'](w.$,{args:'cleanup',origin:{kind:'composer'}})).text;

@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {world} from './fixtures.mjs';
-import {observationContext} from '../extension/hooks/context.js';
-import {enforceTool} from '../extension/hooks/gate.js';
-import {enforceSpawn} from '../extension/hooks/spawn.js';
-import {loadProjectSettings,saveProjectSettings} from '../extension/hooks/project-rules.js';
-import {readProject} from '../extension/hooks/events.js';
-import * as discipline from '../extension/hooks/discipline.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {enforceTool} from '../plugins/agent-arbiter/hooks/gate.js';
+import {enforceSpawn} from '../plugins/agent-arbiter/hooks/spawn.js';
+import {loadProjectSettings,saveProjectSettings} from '../plugins/agent-arbiter/hooks/project-rules.js';
+import {readProject} from '../plugins/agent-arbiter/hooks/events.js';
+import * as discipline from '../plugins/agent-arbiter/hooks/discipline.js';
 
 const REMOVE='r'+'m -rf';
 const identity=(model='claude-sonnet-5-5')=>({id:'c'.repeat(64),name:'developer',source:'userSettings',provider:null,
@@ -181,7 +181,7 @@ test('reducer: terms expire, releases need a human origin, replacement never rep
 });
 
 test('approval dialog names the agent, the command and the rule in the chosen language',async t=>{
- const {setLanguage,currentLanguage,t:text}=await import('../extension/hooks/i18n.js');
+ const {setLanguage,currentLanguage,t:text}=await import('../plugins/agent-arbiter/hooks/i18n.js');
  t.after(()=>setLanguage('en'));
  assert.equal(setLanguage('auto','vi_VN.UTF-8'),'vi');assert.equal(setLanguage('auto','en_US.UTF-8'),'en');
  assert.equal(setLanguage('auto',''),'en');assert.equal(setLanguage('fr','vi_VN'),'vi');

@@ -1,11 +1,11 @@
 import * as fs from 'node:fs/promises';
-import {loadProjectSettings,saveProjectSettings} from '../extension/hooks/project-rules.js';
+import {loadProjectSettings,saveProjectSettings} from '../plugins/agent-arbiter/hooks/project-rules.js';
 import {world} from './fixtures.mjs';
-import {strictProfile,protectedPaths} from '../extension/hooks/runtime-policy.js';
-import {digest} from '../extension/hooks/ledger.js';
-import {probeRuntime,consumeRuntimeProbe,completeRuntimeProbe} from '../extension/hooks/runtime.js';
-import {canonical} from '../extension/hooks/ledger.js';
-import {observationContext} from '../extension/hooks/context.js';
+import {strictProfile,protectedPaths} from '../plugins/agent-arbiter/hooks/runtime-policy.js';
+import {digest} from '../plugins/agent-arbiter/hooks/ledger.js';
+import {probeRuntime,consumeRuntimeProbe,completeRuntimeProbe} from '../plugins/agent-arbiter/hooks/runtime.js';
+import {canonical} from '../plugins/agent-arbiter/hooks/ledger.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
 export async function protectedWorld(t){
  const w=await world(t),base=await fs.realpath(w.root),configRoot=base+'/config',projectRoot=base+'/workspace',pluginRoot=base+'/extension';
  await Promise.all([configRoot,projectRoot,pluginRoot].map(path=>fs.mkdir(path)));

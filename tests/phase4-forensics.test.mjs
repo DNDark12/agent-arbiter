@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import {world} from './fixtures.mjs';
-import {gitSnapshot,gitHead} from '../extension/hooks/forensics.js';
+import {gitSnapshot,gitHead} from '../plugins/agent-arbiter/hooks/forensics.js';
 test('host forensics never executes repository config, filters or PATH commands',async t=>{
  const w=await world(t),head='a'.repeat(40);await fs.mkdir(w.root+'/.git');await fs.mkdir(w.root+'/.git/refs/heads',{recursive:true});
  await fs.writeFile(w.root+'/.git/HEAD','ref: refs/heads/main\n');await fs.writeFile(w.root+'/.git/refs/heads/main',head+'\n');

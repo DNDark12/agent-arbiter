@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import * as policy from '../extension/hooks/runtime-policy.js';
+import * as policy from '../plugins/agent-arbiter/hooks/runtime-policy.js';
 
 const roots = { configRoot: '/Users/operator/.claude', pluginRoot: '/opt/agent-arbiter', projectRoot: '/work/project', home: '/Users/operator' };
 const paths = ['/Users/operator/.claude', '/opt/agent-arbiter', '/work/project/.claude', '/Users/operator/.claude.json'];

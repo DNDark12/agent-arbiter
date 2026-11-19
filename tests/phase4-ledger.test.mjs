@@ -2,10 +2,10 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import {world} from './fixtures.mjs';
-import {canonical,digest,publish,readLedger} from '../extension/hooks/ledger.js';
-import {createSigner} from '../extension/hooks/auth.js';
-import {observationContext} from '../extension/hooks/context.js';
-import {emit,readProject} from '../extension/hooks/events.js';
+import {canonical,digest,publish,readLedger} from '../plugins/agent-arbiter/hooks/ledger.js';
+import {createSigner} from '../plugins/agent-arbiter/hooks/auth.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {emit,readProject} from '../plugins/agent-arbiter/hooks/events.js';
 const secret='ae'.repeat(32);
 const event=async()=>({schemaVersion:1,id:await digest('signed-event'),projectId:await digest('project'),sessionId:'s',agentId:null,kind:'case.pardoned',occurredAt:1,data:{source:{kind:'command',origin:'composer',id:'fake'}}});
 test('signed ledger rejects unsigned and checksum-repaired forged evidence',async t=>{
@@ -27,7 +27,7 @@ test('event emitter signs observations and never adopts a forged existing ID',as
  const envelope=JSON.parse(await fs.readFile(path,'utf8'));assert.ok(envelope.auth);
  delete envelope.auth;await fs.writeFile(path,canonical(envelope));
  // A fresh event module cannot turn the unsigned body's claimed provenance into a signature.
- const fresh=await import('../extension/hooks/events.js?fresh='+crypto.randomUUID());
+ const fresh=await import('../plugins/agent-arbiter/hooks/events.js?fresh='+crypto.randomUUID());
  await assert.rejects(fresh.emit(w.$,ctx,null,'tool.request','signed',{tool:'Read',toolCallId:'signed'}));
  assert.equal((await readProject(w.$,ctx)).events.some(e=>e.id===id),false);
 });

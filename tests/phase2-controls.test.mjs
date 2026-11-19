@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
-import { observing } from '../extension/hooks/controls.js';
+import { observing } from '../plugins/agent-arbiter/hooks/controls.js';
 
 const grant={action:'git.commit',target:'main',environment:'local',scope:{kind:'session',id:'s'}};
 const request={action:'git.commit',target:'main',environment:'local',requestedApproval:true};
@@ -76,8 +76,8 @@ test('disputed authority ledger never produces allow',async t=>{
  const files=(await fs.readdir(root,{recursive:true})).filter(p=>p.endsWith('.json') && p.includes('/events/'));
  const events=await Promise.all(files.map(async p=>JSON.parse(JSON.parse(await fs.readFile(join(root,p),'utf8')).body)));
  const created=events.find(e=>e.kind==='grant.created');
- const {emit}=await import('../extension/hooks/events.js');
- const {observationContext}=await import('../extension/hooks/context.js');
+ const {emit}=await import('../plugins/agent-arbiter/hooks/events.js');
+ const {observationContext}=await import('../plugins/agent-arbiter/hooks/context.js');
  await emit($,await observationContext($),null,'ledger.conflict','fixture-conflict',{targetId:created.id,rejectedHash:'0'.repeat(64)});
  assert.match((await command('check '+JSON.stringify(request))).text,/integrity unavailable/i);
  const evidence=JSON.parse((await command('evidence '+created.id)).text);

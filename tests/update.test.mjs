@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { updatePlugin } from '../extension/hooks/update.js';
-import { handleCourt } from '../extension/hooks/controls.js';
-import { setLanguage } from '../extension/hooks/i18n.js';
+import { updatePlugin } from '../plugins/agent-arbiter/hooks/update.js';
+import { handleCourt } from '../plugins/agent-arbiter/hooks/controls.js';
+import { setLanguage } from '../plugins/agent-arbiter/hooks/i18n.js';
 
 const CONFIG = '/home/me/.claude';
 const ROOT = `${CONFIG}/plugins/cache/agent-arbiter/agent-arbiter/1.2.0`;
@@ -107,7 +107,7 @@ test('the engine is found with absolute tools only, and must be a file named cla
   const run = $.process.run;
   $.process.run = async (argv, init) => { seen.push(argv[0]); return run(argv, init); };
   $.fs.stat = async () => { throw new Error('ENOENT'); };
-  const { executables } = await import('../extension/hooks/update.js');
+  const { executables } = await import('../plugins/agent-arbiter/hooks/update.js');
   assert.deepEqual(await executables($), ['claude']);
   assert.ok(seen.every(path => path.startsWith('/')));
 });

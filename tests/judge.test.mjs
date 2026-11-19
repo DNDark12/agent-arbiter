@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import {world} from './fixtures.mjs';
-import {observationContext} from '../extension/hooks/context.js';
-import {enforceSpawn} from '../extension/hooks/spawn.js';
-import {readProject,emit} from '../extension/hooks/events.js';
-import * as discipline from '../extension/hooks/discipline.js';
-import * as judge from '../extension/hooks/judge.js';
-import {reduceScores} from '../extension/hooks/scoring.js';
-import {prunable} from '../extension/hooks/retention.js';
-import {mainCitizen} from '../extension/hooks/citizens.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {enforceSpawn} from '../plugins/agent-arbiter/hooks/spawn.js';
+import {readProject,emit} from '../plugins/agent-arbiter/hooks/events.js';
+import * as discipline from '../plugins/agent-arbiter/hooks/discipline.js';
+import * as judge from '../plugins/agent-arbiter/hooks/judge.js';
+import {reduceScores} from '../plugins/agent-arbiter/hooks/scoring.js';
+import {prunable} from '../plugins/agent-arbiter/hooks/retention.js';
+import {mainCitizen} from '../plugins/agent-arbiter/hooks/citizens.js';
 
 const identity=(name='developer',model='claude-sonnet-5-5')=>({id:'c'.repeat(64),name,source:'userSettings',provider:null,
  definitionHash:'d'.repeat(64),resolvedModel:model,engineVersion:'2.1.325'});
@@ -196,7 +196,7 @@ test('findings count only when the person confirms; a dismissed finding withdraw
 });
 
 test('brief profile: difficulty and run role are read from the brief before the run',async()=>{
- const {briefProfile,effectiveRole}=await import('../extension/hooks/roles.js');
+ const {briefProfile,effectiveRole}=await import('../plugins/agent-arbiter/hooks/roles.js');
  assert.deepEqual(briefProfile('Fix the typo in README.md'),{runRole:'dev',difficulty:'easy'});
  assert.deepEqual(briefProfile('Review the diff of the payment module and find bugs.'),{runRole:'review',difficulty:'easy'});
  assert.equal(briefProfile('Refactor the cache layer for concurrency and fix the race in the transaction handling.').difficulty,'medium');

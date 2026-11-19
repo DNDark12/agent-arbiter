@@ -2,14 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import {world} from './fixtures.mjs';
-import {observationContext} from '../extension/hooks/context.js';
-import {openRulesPane,registerRulesPane} from '../extension/hooks/rules-pane.js';
-import {loadProjectSettings,saveProjectSettings} from '../extension/hooks/project-rules.js';
-import {currentEnforcement,setMasterEnabled} from '../extension/hooks/controls.js';
-import {publish,digest} from '../extension/hooks/ledger.js';
-import {setLanguage} from '../extension/hooks/i18n.js';
-import {emit,readProject} from '../extension/hooks/events.js';
-import {recordViolation,disciplineState,resetDiscipline,rememberCitizen} from '../extension/hooks/discipline.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {openRulesPane,registerRulesPane} from '../plugins/agent-arbiter/hooks/rules-pane.js';
+import {loadProjectSettings,saveProjectSettings} from '../plugins/agent-arbiter/hooks/project-rules.js';
+import {currentEnforcement,setMasterEnabled} from '../plugins/agent-arbiter/hooks/controls.js';
+import {publish,digest} from '../plugins/agent-arbiter/hooks/ledger.js';
+import {setLanguage} from '../plugins/agent-arbiter/hooks/i18n.js';
+import {emit,readProject} from '../plugins/agent-arbiter/hooks/events.js';
+import {recordViolation,disciplineState,resetDiscipline,rememberCitizen} from '../plugins/agent-arbiter/hooks/discipline.js';
 
 async function pane(t,tab='settings'){
  setMasterEnabled(true);setLanguage('en');resetDiscipline();t.after(()=>{setMasterEnabled(true);setLanguage('en');});

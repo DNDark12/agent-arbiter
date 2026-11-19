@@ -2,15 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import {world} from './fixtures.mjs';
-import {observationContext} from '../extension/hooks/context.js';
-import {enforceTool} from '../extension/hooks/gate.js';
-import {enforceSpawn} from '../extension/hooks/spawn.js';
-import {loadProjectSettings,saveProjectSettings} from '../extension/hooks/project-rules.js';
-import {emit,readProject} from '../extension/hooks/events.js';
-import * as discipline from '../extension/hooks/discipline.js';
-import {classifyRole,roleOf,ROLES} from '../extension/hooks/roles.js';
-import {reduceScores,scoreTable} from '../extension/hooks/scoring.js';
-import {reduceLessons,lessonsFor,lessonBlock,lessonEffects} from '../extension/hooks/lessons.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {enforceTool} from '../plugins/agent-arbiter/hooks/gate.js';
+import {enforceSpawn} from '../plugins/agent-arbiter/hooks/spawn.js';
+import {loadProjectSettings,saveProjectSettings} from '../plugins/agent-arbiter/hooks/project-rules.js';
+import {emit,readProject} from '../plugins/agent-arbiter/hooks/events.js';
+import * as discipline from '../plugins/agent-arbiter/hooks/discipline.js';
+import {classifyRole,roleOf,ROLES} from '../plugins/agent-arbiter/hooks/roles.js';
+import {reduceScores,scoreTable} from '../plugins/agent-arbiter/hooks/scoring.js';
+import {reduceLessons,lessonsFor,lessonBlock,lessonEffects} from '../plugins/agent-arbiter/hooks/lessons.js';
 
 const identity=(name='developer',model='claude-sonnet-5-5')=>({id:'c'.repeat(64),name,source:'userSettings',provider:null,
  definitionHash:'d'.repeat(64),resolvedModel:model,engineVersion:'2.1.325'});

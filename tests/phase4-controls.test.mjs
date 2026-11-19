@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {world} from './fixtures.mjs';
 import {protectedWorld} from './protected-fixture.mjs';
-import * as controls from '../extension/hooks/controls.js';
+import * as controls from '../plugins/agent-arbiter/hooks/controls.js';
 test('runtime profile is public and never applies settings; SDK cannot bootstrap or probe',async t=>{
  const w=await world(t);const result=JSON.parse((await w.command('runtime profile','sdk')).text);assert.equal(result.applied,false);assert.ok(result.settings.sandbox.enabled);
  assert.match((await w.command('runtime bootstrap','sdk')).text,/Human/);assert.match((await w.command('runtime probe','sdk')).text,/Human/);
@@ -33,8 +33,8 @@ test('selected deny laws require a matching engine deny backup before activation
 test('temporary startup auth failure never caches observe over persisted signed enforce',async t=>{
  const w=await protectedWorld(t),policy={finePoints:1,replacementModels:['claude-alternative-full-id'],grantsOnly:true,trustedHost:true,noOutsideWriters:true};
  await w.command('runtime probe');await w.command('mode enforce '+JSON.stringify(policy));
- const fresh=await import('../extension/hooks/controls.js?restore='+crypto.randomUUID());
- const {observationContext}=await import('../extension/hooks/context.js');
+ const fresh=await import('../plugins/agent-arbiter/hooks/controls.js?restore='+crypto.randomUUID());
+ const {observationContext}=await import('../plugins/agent-arbiter/hooks/context.js');
  w.settings.sandbox.enabled=false;
  const broken=await observationContext(w.$);assert.ok(broken.authError);
  assert.equal((await fresh.currentEnforcement(w.$,broken)).bindingMismatch,true);

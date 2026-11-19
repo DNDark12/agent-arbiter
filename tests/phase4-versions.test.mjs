@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { canonical } from '../extension/hooks/ledger.js';
-import * as statutes from '../extension/hooks/statutes.js';
+import { canonical } from '../plugins/agent-arbiter/hooks/ledger.js';
+import * as statutes from '../plugins/agent-arbiter/hooks/statutes.js';
 
 const sha256 = value => createHash('sha256').update(canonical(value)).digest('hex');
 const unversioned = ({ version, ...rule }) => rule;

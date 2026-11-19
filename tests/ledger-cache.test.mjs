@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { canonical, digest, publish, replay, readLedger } from '../extension/hooks/ledger.js';
-import * as events from '../extension/hooks/events.js';
-import { createSigner } from '../extension/hooks/auth.js';
+import { canonical, digest, publish, replay, readLedger } from '../plugins/agent-arbiter/hooks/ledger.js';
+import * as events from '../plugins/agent-arbiter/hooks/events.js';
+import { createSigner } from '../plugins/agent-arbiter/hooks/auth.js';
 const exec = promisify(execFile);
 async function fixture(t) {
   const root = await fs.mkdtemp(join(tmpdir(), 'court-cache-'));

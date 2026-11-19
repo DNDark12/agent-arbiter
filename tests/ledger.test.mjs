@@ -6,7 +6,7 @@ import { execFile } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
-import * as ledger from '../extension/hooks/ledger.js';
+import * as ledger from '../plugins/agent-arbiter/hooks/ledger.js';
 
 const exec = promisify(execFile);
 const projectId = 'a'.repeat(64);

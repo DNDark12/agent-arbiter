@@ -1,10 +1,10 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {world} from './fixtures.mjs';
-import {digest} from '../extension/hooks/ledger.js';
-import {emit,readProject} from '../extension/hooks/events.js';
-import {observationContext} from '../extension/hooks/context.js';
-import {compileRules} from '../extension/hooks/statutes.js';
+import {digest} from '../plugins/agent-arbiter/hooks/ledger.js';
+import {emit,readProject} from '../plugins/agent-arbiter/hooks/events.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {compileRules} from '../plugins/agent-arbiter/hooks/statutes.js';
 async function fixture(t){
  const w=await world(t),ctx=await observationContext(w.$),citizenId=await digest('citizen');
  await emit(w.$,ctx,null,'spawn.result','spawn-a',{status:'started',childAgentId:'a',citizen:{id:citizenId}});
@@ -48,7 +48,7 @@ test('SDK cannot sentence/pardon; preview IDs and missing actor evidence cannot 
 });
 test('two concurrent judgments of same evidence publish one verdict event',async t=>{
  const {$,ctx,command,input}=await fixture(t);
- const {handleCourt}=await import('../extension/hooks/controls.js');
+ const {handleCourt}=await import('../plugins/agent-arbiter/hooks/controls.js');
  const other={...$,session:{...$.session,id:async()=> 'second-adjudicator'}};
  const results=await Promise.all([command('verdict '+JSON.stringify(input)),handleCourt(other,{args:'verdict '+JSON.stringify(input),origin:{kind:'composer'}})]);
  assert.equal(JSON.parse(results[0].text).caseId,JSON.parse(results[1].text).caseId);

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { fileMetadata, redact } from '../extension/hooks/privacy.js';
-import { citizen } from '../extension/hooks/citizens.js';
-import { transcriptCoverage, gitSnapshot } from '../extension/hooks/forensics.js';
+import { fileMetadata, redact } from '../plugins/agent-arbiter/hooks/privacy.js';
+import { citizen } from '../plugins/agent-arbiter/hooks/citizens.js';
+import { transcriptCoverage, gitSnapshot } from '../plugins/agent-arbiter/hooks/forensics.js';
 
 test('paths normalize traversal and external paths become digests; common secrets are redacted', async () => {
   assert.equal((await fileMetadata('/repo', '/repo/a/../b.js')).path, 'b.js');
@@ -71,7 +71,7 @@ test('user definitions follow CLAUDE_CONFIG_DIR, and two matching names stay amb
 });
 
 test('masking covers common token shapes, credential URLs, key blocks and secret files',async()=>{
- const {redact,maskText,SECRET_FILE}=await import('../extension/hooks/privacy.js');
+ const {redact,maskText,SECRET_FILE}=await import('../plugins/agent-arbiter/hooks/privacy.js');
  const samples=['xoxb-1234567890-abcdefghij','AIza'+'A'.repeat(35),'sk_live_'+'a'.repeat(24),'glpat-'+'b'.repeat(20),'npm_'+'c'.repeat(36),
   'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U'];
  for(const sample of samples)assert.ok(!redact('value '+sample).includes(sample),sample);

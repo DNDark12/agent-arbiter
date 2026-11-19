@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {world} from './fixtures.mjs';
-import {observationContext} from '../extension/hooks/context.js';
-import {currentEnforcement} from '../extension/hooks/controls.js';
-import {enforceTool} from '../extension/hooks/gate.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {currentEnforcement} from '../plugins/agent-arbiter/hooks/controls.js';
+import {enforceTool} from '../plugins/agent-arbiter/hooks/gate.js';
 
 async function fresh(t){const w=await world(t);w.$.plugin.root=w.root+'/extension';w.$.session.id=async()=>w.root;await w.command('mode enforce');return w;}
 test('clean default enforcement needs no key, policy, settings or probe',async t=>{
@@ -48,7 +48,7 @@ test('configured broken anchor never blocks default or observe reads',async t=>{
 
 test('custom rules and builtin toggles change production decisions immediately',async t=>{
  const w=await fresh(t),ctx=await observationContext(w.$);let asks=0;w.$.ui.ask=async()=>{asks++;return 'Deny'};
- const {loadProjectSettings,saveProjectSettings}=await import('../extension/hooks/project-rules.js');
+ const {loadProjectSettings,saveProjectSettings}=await import('../plugins/agent-arbiter/hooks/project-rules.js');
  const settings=await loadProjectSettings(w.$,ctx);
  const edit={tool:'Edit',file_path:w.root+'/src/a.js'};
  assert.equal(await enforceTool(w.$,ctx,edit,{},'one'),null);
@@ -62,7 +62,7 @@ test('custom rules and builtin toggles change production decisions immediately',
 test('no answer blocks only sensitive call and never records a sentence',async t=>{
  const w=await fresh(t),ctx=await observationContext(w.$);w.$.ui.ask=async()=>{throw Error('dismissed')};
  assert.match((await enforceTool(w.$,ctx,{tool:'Bash',command:'rm -rf scratch'},{},'one')).deny,/unavailable/);
- const {readProject}=await import('../extension/hooks/events.js');assert.equal((await readProject(w.$,ctx)).events.some(e=>e.kind==='verdict.recorded'),false);
+ const {readProject}=await import('../plugins/agent-arbiter/hooks/events.js');assert.equal((await readProject(w.$,ctx)).events.some(e=>e.kind==='verdict.recorded'),false);
 });
 test('global settings JSON and destructive ancestor paths are protected',async t=>{
  const w=await fresh(t);w.$.env.get=async k=>k==='HOME'?w.root+'/home':k==='CLAUDE_CONFIG_DIR'?w.root:undefined;
@@ -77,14 +77,14 @@ test('approval never transfers to a symlink target changed while the dialog is o
  const w=await fresh(t),ctx=await observationContext(w.$);const fs=await import('node:fs/promises');
  await fs.mkdir(w.root+'/one');await fs.mkdir(w.root+'/two');await fs.symlink(w.root+'/one',w.root+'/link');
  w.$.ui.ask=async()=>{await fs.unlink(w.root+'/link');await fs.symlink(w.root+'/two',w.root+'/link');return 'Allow'};
- const {loadProjectSettings,saveProjectSettings}=await import('../extension/hooks/project-rules.js');
+ const {loadProjectSettings,saveProjectSettings}=await import('../plugins/agent-arbiter/hooks/project-rules.js');
  await saveProjectSettings(w.$,ctx,{...await loadProjectSettings(w.$,ctx),rules:[{id:'user:ask',action:'file.write',target:'**',effect:'ask'}]});
  assert.match((await enforceTool(w.$,ctx,{tool:'Write',file_path:w.root+'/link/a.js'},{},'one')).deny,/changed|retry/);
 });
 
 test('a git worktree of the same repository is inside the project; a forged worktree entry is not',async t=>{
  const fs=await import('node:fs/promises'),{join}=await import('node:path'),{tmpdir}=await import('node:os');
- const {saveProjectSettings}=await import('../extension/hooks/project-rules.js');
+ const {saveProjectSettings}=await import('../plugins/agent-arbiter/hooks/project-rules.js');
  const w=await fresh(t);let asks=0;w.$.ui.ask=async()=>{asks++;return 'Allow'};
  const tree=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'arbiter-worktree-'))),forged=await fs.realpath(await fs.mkdtemp(join(tmpdir(),'arbiter-forged-')));
  t.after(()=>Promise.all([tree,forged].map(path=>fs.rm(path,{recursive:true,force:true}))));

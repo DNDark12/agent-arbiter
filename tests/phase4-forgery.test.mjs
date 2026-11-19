@@ -2,9 +2,9 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import {protectedWorld} from './protected-fixture.mjs';
-import {canonical,digest} from '../extension/hooks/ledger.js';
-import {emit,readProject} from '../extension/hooks/events.js';
-import {enforceTool} from '../extension/hooks/gate.js';
+import {canonical,digest} from '../plugins/agent-arbiter/hooks/ledger.js';
+import {emit,readProject} from '../plugins/agent-arbiter/hooks/events.js';
+import {enforceTool} from '../plugins/agent-arbiter/hooks/gate.js';
 async function forged(w,root,kind,data){
  const id=await digest(crypto.randomUUID()),event={schemaVersion:1,id,projectId:w.ctx.projectId,sessionId:w.ctx.sessionId,agentId:null,kind,occurredAt:Date.now(),data};
  const body=canonical(event),path=root+'/events/'+w.ctx.projectId+'/'+new Date().toISOString().slice(0,7)+'/'+id+'.json';

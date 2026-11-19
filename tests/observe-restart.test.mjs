@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { canonical, digest, readLedger, replay } from '../extension/hooks/ledger.js';
+import { canonical, digest, readLedger, replay } from '../plugins/agent-arbiter/hooks/ledger.js';
 
 test('hook reload reuses persisted event time and reports a conflicting payload', async t => {
   const root = await fs.mkdtemp(join(tmpdir(), 'court-reload-'));
@@ -31,7 +31,7 @@ test('hook reload reuses persisted event time and reports a conflicting payload'
     } },
   };
   async function deliver(path) {
-    const { register } = await import(`../extension/hooks/register.js?reload=${crypto.randomUUID()}`);
+    const { register } = await import(`../plugins/agent-arbiter/hooks/register.js?reload=${crypto.randomUUID()}`);
     let tool;
     register((name, match) => { if (name === 'tool.call') tool = match; return {catch(){}}; });
     return tool($, { tool: 'Write', tool_use_id: 'same-call', file_path: path }, async () => ({ result: 'unchanged' }));

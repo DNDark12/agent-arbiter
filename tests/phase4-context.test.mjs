@@ -2,9 +2,9 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'node:fs/promises';
 import {world} from './fixtures.mjs';
-import {observationContext} from '../extension/hooks/context.js';
-import {protectedPaths,strictProfile} from '../extension/hooks/runtime-policy.js';
-import {digest} from '../extension/hooks/ledger.js';
+import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
+import {protectedPaths,strictProfile} from '../plugins/agent-arbiter/hooks/runtime-policy.js';
+import {digest} from '../plugins/agent-arbiter/hooks/ledger.js';
 test('anchored epoch never adopts unsigned v1 authority and broken anchor cannot fall back',async t=>{
  const w=await world(t);const root=await fs.realpath(w.root),secret='fa'.repeat(32),anchor=await digest(secret),key=root+'/plugins/data/agent-arbiter/security/key-'+crypto.randomUUID()+'.hex';
  await w.$.fs.write(key,secret);await fs.chmod(key,0o600);

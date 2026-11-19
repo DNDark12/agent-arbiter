@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "agent-arbiter",
-      "source": "./extension",
+      "source": "./plugins/agent-arbiter",
       "description": "Rules, approvals, discipline, scores, lessons and an advisory judge for Claude Code agents.",
       "displayName": "Agent Arbiter"
     }

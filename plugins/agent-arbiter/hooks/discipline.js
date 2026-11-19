@@ -264,7 +264,8 @@ export function docket(state, limit = 50) {
   return [...state.violations].sort((left, right) => right.at - left.at).slice(0, limit).map(record => ({
     id: record.id, at: record.at, who: record.citizen ? `${record.citizen.name}${record.citizen.model ? `@${record.citizen.model}` : ''}` :
       record.agentId ? 'agent' : 'main', sanction: record.sanction, reason: record.reason,
-    ruleIds: record.ruleIds, points: record.points, status: record.status, releaseReason: record.releaseReason ?? null }));
+    ruleIds: record.ruleIds, points: record.points, status: record.status, releaseReason: record.releaseReason ?? null,
+    agentId: record.agentId ?? null, citizenName: record.citizen?.name ?? null }));
 }
 
 

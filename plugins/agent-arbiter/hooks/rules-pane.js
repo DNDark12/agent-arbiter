@@ -3,13 +3,14 @@ import { ACTIONS, EFFECTS, loadProjectSettings, updateProjectSettings, listRules
 import { disciplineState, docket, releaseViolations } from './discipline.js';
 import { t, ruleLabel, actionLabel } from './i18n.js';
 import { readProject } from './events.js';
-import {reduceScores,allProjectScoreRows,scoreUsage,scoreQuality} from './scoring.js';
+import {reduceScores,allProjectScoreRows,scoreUsage} from './scoring.js';
 import {projectLessons,shareLessons,unshareLessons,loadLibrary,lessonEffects,experimentResults} from './lessons.js';
 import {reduceReviews,decideFinding,decideExemplar,judgeUsage,JUDGE_MODEL,DAILY_TRIALS} from './judge.js';
 import {refreshStatus,diagnostics} from './status.js';
 import {changeProjectMode,changeGlobalConfig,globalConfig,purgeData,resetRules} from './panel-actions.js';
 import {masterIsEnabled} from './control-state.js';
-import {ROLES} from './roles.js';
+import {ROLES,roleOf} from './roles.js';
+import {COLORS,levelRow,roleIcon} from './visuals.js';
 import {quarantineProject} from './events.js';
 import {pruneProject,RETENTION_DAYS} from './retention.js';
 
@@ -191,7 +192,11 @@ async function violationsView($,h,ctx,state,settings){
       ...(active.length?[h.Button({key:'release-all',label:t('settings.releaseAll',{count:active.length}),onPress:()=>askConfirmation($,state,'release-all',{count:active.length,ids:active.map(record=>record.id),reason:''})})]:[]),
     ]}),
     ...(visible.length?visible.map(record=>h.Box({key:record.id,flexDirection:'column',children:[
-      h.Text({bold:true,children:record.who}),
+      h.Box({flexDirection:'row',alignItems:'center',gap:1,children:[
+        roleIcon(h,state.surface,record.agentId?roleOf(record.citizenName ?? ''):'main',24,
+          {animate:true,detained:record.sanction==='detain' && record.status==='active'},record.who),
+        h.Text({bold:true,children:record.who}),
+      ]}),
       h.Text({children:`${new Date(record.at).toISOString().slice(0,16).replace('T',' ')} · ${t('sanction.'+record.sanction)} · -${record.points} · ${t('status.'+record.status)}`}),
       h.Text({dimColor:true,children:record.ruleIds.map(id=>id.startsWith('user:')?id:t('rule.'+id)).join(', ')}),
       ...(record.releaseReason?[h.Text({children:t('settings.reasonValue',{reason:record.releaseReason})})]:[]),
@@ -219,6 +224,22 @@ function roleSelect($,h,ctx,name,settings){
     options:['auto',...ROLES].map(value=>({value,label:value==='auto'?t('settings.automatic'):t('role.'+value)})),
     onSelect:value=>mutate($,ctx,latest=>{const roles={...latest.roles};if(value==='auto')delete roles[name];else roles[name]=value;return {...latest,roles};})});
 }
+// A row's levels: trust and clean runs for a subagent type, warnings for the
+// main agent, and the reviewed quality, a bar only once something was scored.
+function scoreLevels(row){
+  const reviewed=row.qualityGroups.reduce((sum,group)=>sum+group.reviews,0);
+  const quality=reviewed?Math.round(row.qualityGroups.reduce((sum,group)=>sum+group.sum,0)/reviewed):null;
+  const levels=row.kind==='main'?[
+    {key:'warnings',label:t('score.warnings'),figure:t('score.warningsFigure',{count:row.warnings}),bar:null},
+  ]:[
+    {key:'trust',label:t('score.trust'),figure:t('score.outOf100',{value:row.trust}),bar:{value:row.trust,max:100,color:COLORS.trust}},
+  ];
+  levels.push({key:'quality',label:t('score.quality'),figure:quality===null?t('score.notReviewed'):t('score.outOf100',{value:quality}),
+    bar:quality===null?null:{value:quality,max:100,color:COLORS.quality}});
+  if(row.kind!=='main')levels.push({key:'clean',label:t('score.clean'),figure:t('score.cleanFigure',{clean:row.cleanRuns,runs:row.runs}),
+    bar:{value:row.cleanRuns,max:row.runs,color:COLORS.clean}});
+  return levels;
+}
 async function scoresView($,h,ctx,state,settings,data){
   if(state.scoreScope==='all' && !data.allScores)data.allScores=await allProjectScoreRows($,ctx);
   const rows=(state.scoreScope==='all'?data.allScores.rows:data.rows).filter(row=>
@@ -234,13 +255,17 @@ async function scoresView($,h,ctx,state,settings,data){
       // Main and unidentified rows are not agent types: a role set for them would
       // override the role each turn's brief gives.
       const role=!seen.has(row.name) && state.scoreScope==='project' && row.kind==='subagent' && row.name!=='unidentified-agent';seen.add(row.name);
-      const quality=scoreQuality(row);
       const name=row.kind==='main'?t('pane.agentKind.main'):row.name;
-      return h.Box({flexDirection:'column',gap:1,children:[
-        h.Text({bold:true,children:`${name} · ${row.model ?? t('pane.modelUnknown')}`}),
-        h.Text({children:t(row.kind==='main'?'pane.mainScore':'pane.score',{...row,clean:row.cleanRuns})}),
+      return h.Box({key:'score:'+row.kind+':'+row.name+':'+(row.model ?? ''),flexDirection:'column',gap:1,children:[
+        h.Box({flexDirection:'row',alignItems:'center',gap:1,children:[
+          roleIcon(h,state.surface,row.kind==='main'?'main':row.role,32,{animate:true},t('role.'+row.role)),
+          h.Box({flexDirection:'row',flexWrap:'wrap',flexShrink:1,columnGap:1,children:[
+            h.Text({bold:true,children:name}),
+            h.Text({dimColor:true,children:`${row.model ?? t('pane.modelUnknown')} · ${t(row.kind==='main'?'score.turns':'score.runs',{runs:row.runs})}${row.detained?' · '+t('tbl.detained').replace(/^ · /,''):''}`}),
+          ]}),
+        ]}),
+        ...scoreLevels(row).map(metric=>levelRow(h,state.surface,metric,state.columns)),
         h.Text({dimColor:true,children:scoreUsage(row)}),
-        ...(quality.length?quality:[t('pane.qualityNone')]).map(line=>h.Text({dimColor:true,children:line})),
         ...(role?[roleSelect($,h,ctx,row.name,settings)]:[]),
       ]});
     }):[h.Text({dimColor:true,children:t('pane.scoresNone')})]),controls,
@@ -295,9 +320,16 @@ function reviewsView($,h,ctx,state,settings,data){
   return h.Box({flexDirection:'column',gap:1,children:[
     h.Text({children:t('tbl.judgeHead',{state:t(settings.judge?'cmd.on':'cmd.off'),model:JUDGE_MODEL,today:usage.today,cap:DAILY_TRIALS,trials:usage.trials,input:usage.inputTokens,output:usage.outputTokens})}),
     h.Select({key:'review-filter',label:t('settings.filter'),value:state.reviewFilter,options:['pending','completed','all'].map(value=>({value,label:t('settings.'+value)})),onSelect:value=>{state.pages.reviews=0;change($,state,{reviewFilter:value,detail:null});}}),
-    ...(visible.length?visible.map(review=>h.Box({flexDirection:'column',children:[
-      h.Text({bold:true,children:`${review.citizen?.name || 'agent'} · ${t('role.'+review.role)} · ${review.difficulty}`}),
-      h.Text({children:t('pane.quality',{quality:review.quality ?? t('tbl.undetermined'),reviews:1})}),
+    ...(visible.length?visible.map(review=>h.Box({key:'review-row:'+review.id,flexDirection:'column',gap:1,children:[
+      h.Box({flexDirection:'row',alignItems:'center',gap:1,children:[
+        roleIcon(h,state.surface,review.citizen?.kind==='main'?'main':review.role,24,{animate:true},t('role.'+review.role)),
+        h.Box({flexDirection:'row',flexWrap:'wrap',flexShrink:1,columnGap:1,children:[
+          h.Text({bold:true,children:review.citizen?.kind==='main'?t('pane.agentKind.main'):review.citizen?.name || 'agent'}),
+          h.Text({dimColor:true,children:`${t('role.'+review.role)} · ${t('difficulty.'+review.difficulty)}`}),
+        ]}),
+      ]}),
+      levelRow(h,state.surface,{key:'quality',label:t('score.quality'),figure:review.quality===null?t('score.notReviewed'):t('score.outOf100',{value:review.quality}),
+        bar:review.quality===null?null:{value:review.quality,max:100,color:COLORS.quality}},state.columns),
       h.Button({key:'review:'+review.id,label:t('settings.details'),onPress:()=>change($,state,{detail:{kind:'review',id:review.id}})}),
     ]})):[h.Text({dimColor:true,children:t('settings.noReviews')})]),controls,
   ]});
@@ -337,8 +369,12 @@ async function settingsView($,h,ctx,state,settings,failures){
     ]:[]),
   ]});
 }
-export async function openRulesPane($,ctx,tab='rules'){
-  const state=stateFor(ctx);state.tab=tab;state.data=null;state.diagnostics=null;state.confirm=null;state.detail=null;
+// focus: what the band's Open came for. 'jail' shows the detained agents,
+// 'review' the decisions waiting; either way without a line in the chat.
+export async function openRulesPane($,ctx,tab='rules',focus=null){
+  const state=stateFor(ctx);state.tab=tab;state.data=null;state.diagnostics=null;state.confirm=null;state.detail=null;state.editor=null;
+  if(focus==='jail')Object.assign(state,{tab:'violations',violationFilter:'active',pages:{...state.pages,violations:0}});
+  if(focus==='review')Object.assign(state,{tab:'citizens',agentSection:'reviews',reviewFilter:'pending',pages:{...state.pages,reviews:0}});
   return $.ui.open({id:PANE,title:'Agent Arbiter',focus:true});
 }
 export function registerRulesPane(on,failures=()=>0){
@@ -347,6 +383,7 @@ export function registerRulesPane(on,failures=()=>0){
     try{ctx=await observationContext($,{recoverPreferences:true});}
     catch(error){return h.Box({flexDirection:'column',children:[h.Text({children:t('pane.unavailable')}),h.Text({children:String(error.message)}),h.Button({key:'refresh-rules',label:t('pane.retry'),onPress:()=>redraw($)})]});}
     const state=stateFor(ctx);let settings,body;
+    state.surface=e.surface;state.columns=Number.isFinite(e.props?.bodyColumns)?e.props.bodyColumns:60;
     try{settings=await loadProjectSettings($,ctx);}catch(error){body=h.Box({flexDirection:'column',gap:1,children:[h.Text({children:t('pane.unavailable')}),h.Text({children:String(error.message)}),h.Button({key:'reset-rules',label:t('pane.reset'),onPress:()=>askConfirmation($,state,'reset')})]});}
     try{
       if(state.pending)body=h.Text({children:t('settings.working')});
