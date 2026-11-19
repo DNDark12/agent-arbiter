@@ -28,9 +28,10 @@ export function timelineRow(h, surface, agent, { lanes = 1, first = false, last 
   const name = main ? t('pane.agentKind.main') : agent.name;
   const facts = main ? [shortModel(agent.model), t('history.turns', { count: agent.turns }), t('history.calls', { count: agent.calls })].filter(Boolean).join(' · ')
     : [shortModel(agent.model), runFacts(agent)].filter(Boolean).join(' · ');
-  const body = h.Box({ flexDirection: 'row', alignItems: 'center', gap: 1, flexShrink: 1, children: [gutter, icon,
-    h.Text({ bold: true, maxLines: 1, wrap: 'truncate', children: name }),
+  const runKey = key ?? 'run:' + (agent.agentId ?? 'main');
+  const title = h.Text({ bold: true, maxLines: 1, wrap: 'truncate', children: name });
+  return h.Box({ key: onPress ? 'row:' + runKey : runKey, flexDirection: 'row', alignItems: 'center', gap: 1, flexShrink: 1, children: [gutter, icon,
+    onPress ? h.Button({ key: runKey, plain: true, onPress, children: [title] }) : title,
     ...(main ? [] : [h.Text({ color, maxLines: 1, children: t('role.' + agent.role) })]),
     h.Text({ dimColor: true, maxLines: 1, wrap: 'truncate', children: facts })] });
-  return onPress ? h.Button({ key: key ?? 'run:' + (agent.agentId ?? 'main'), plain: true, onPress, children: [body] }) : h.Box({ key: key ?? 'run:' + (agent.agentId ?? 'main'), children: [body] });
 }

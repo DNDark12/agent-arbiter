@@ -73,34 +73,39 @@ const MAX_TRACK_COLUMNS = 160;
 
 // One bar as drawn. columns is the row's width in cells and the track fills
 // what the pill leaves; the figure goes first when room runs short, then the
-// track, never the pill. small: the one-bar band, with no figure. onPress:
-// pressing the bar (icon and meter) opens or closes the band.
+// track, never the pill. small: the one-bar band, with no figure.
 export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, after = []) {
   const Svg = svgOf(h, surface), free = columns - 4 - (tail ? BUTTON_COLUMNS : 0);
-  // The figure rides inside the pill, so one shape says what waits and how far it has come.
   const columnsOf = text => [...text].length + 2;
   const folded = !small && row.stat ? `${row.pill} · ${row.stat}` : row.pill;
   const label = folded !== row.pill && free - columnsOf(folded) >= 8 ? folded : row.pill;
   const trackColumns = row.max ? Math.min(MAX_TRACK_COLUMNS, free - columnsOf(label) - 1 - after.length * 3) : 0;
   const lead = roleIcon(h, surface, row.role, 18, row.detained ? { detained: true, pulse: row.pulse } : { animate: row.waiting }, row.alt);
-  let meter;
+  const labelText = h.Text({ color: row.color, bold: true, maxLines: 1, children: ` ${label} ` });
+  const toggle = onPress ? h.Button({ key: 'band-toggle-' + row.key, label, plain: true, onPress, children: [labelText] }) : null;
+  const meter = [];
   if (Svg) {
-    const drawn = pillTrackSvg({ label, color: row.color, value: row.value, max: row.max,
-      width: row.max ? Math.max(pillWidth(label) + 24, Math.round(trackColumns * 7.5)) : 0 });
-    meter = Svg({ source: drawn.source, alt: row.alt, width: drawn.width, height: drawn.height });
+    if (toggle) meter.push(toggle);
+    // The native button owns the label. The dotted track only shows progress.
+    if (!toggle || trackColumns >= 4) {
+      const trackLabel = toggle ? '' : label;
+      const width = toggle ? trackColumns * 7.5 : Math.max(pillWidth(label) + 24, trackColumns * 7.5);
+      const drawn = pillTrackSvg({ label: trackLabel, color: row.color, value: row.value, max: row.max, width });
+      meter.push(Svg({ source: drawn.source, alt: row.alt, width: drawn.width, height: drawn.height }));
+    }
   } else {
     const cells = trackColumns >= 4 ? trackColumns : 0, share = fraction({ value: row.value, max: row.max });
     // One decided item must show: never round a started bar back to empty, nor a part-done one to full.
     const done = share > 0 && cells ? Math.min(share < 1 ? cells - 1 : cells, Math.max(1, Math.round(share * cells))) : 0;
-    meter = h.Box({ flexDirection: 'row', flexShrink: 0, children: [
+    meter.push(h.Box({ flexDirection: 'row', flexShrink: 0, children: [
       ...(done ? [h.Text({ color: row.color, dimColor: true, children: '█'.repeat(done) })] : []),
-      h.Text({ color: row.color, bold: true, maxLines: 1, children: ` ${label} ` }),
+      toggle ?? labelText,
       ...(cells - done ? [h.Text({ dimColor: true, children: '░'.repeat(cells - done) })] : []),
-    ] });
+    ] }));
   }
-  const bar = h.Box({ flexDirection: 'row', alignItems: 'center', gap: 1, flexShrink: 1, flexGrow: 1, children: [lead, meter, ...after] });
+  const bar = h.Box({ flexDirection: 'row', alignItems: 'center', gap: 1, flexShrink: 1, flexGrow: 1, children: [lead, ...meter, ...after] });
   return h.Box({ key: row.key, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 1, children: [
-    onPress ? h.Button({ key: 'band-toggle-' + row.key, plain: true, onPress, children: [bar] }) : bar,
+    bar,
     ...(tail ? [tail] : []),
   ] });
 }
@@ -122,7 +127,6 @@ export function registerBand(on) {
     if (!rows.some(row => row.waiting)) return next(e);
     const h = $.ui.resolve(e), expanded = snapshot.expanded === true;
     const icon = (key, label, onPress) => h.Button({ key, label, plain: true, dimColor: true, onPress });
-    // The bar itself opens and closes the list; only open and close stay as buttons.
     const toggle = () => setBandExpanded($, ctx, !expanded);
     const tail = h.Box({ key: 'actions', flexDirection: 'row', gap: 1, flexShrink: 0, children: [
       icon('band-open', '↗', () => void openAtWaiting($)),

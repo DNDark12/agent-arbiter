@@ -59,7 +59,7 @@ export const pillWidth = label => Math.round(textWidth(label) + 22);
 const hash = n => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
 
 export function pillTrackSvg({ label, color, value = 0, max = null, width = 240, moving = true }) {
-  const fill = paint(color), pill = pillWidth(label), mid = PILL_HEIGHT / 2;
+  const fill = paint(color), pill = label ? pillWidth(label) : 0, mid = PILL_HEIGHT / 2;
   const pillShape = x => `<rect x="${x}" width="${pill}" height="${PILL_HEIGHT}" rx="${mid}" fill="${fill}"/>` +
     `<text x="${x + pill / 2}" y="${mid + 4}" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-size="11.5" font-weight="650" fill="#1B1B1B" style="font-variant-numeric: tabular-nums">${escapeText(label)}</text>`;
   const svg = (w, body) => ({ width: w, height: PILL_HEIGHT, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${PILL_HEIGHT}" viewBox="0 0 ${w} ${PILL_HEIGHT}">${body}</svg>` });
@@ -98,7 +98,7 @@ export function pillTrackSvg({ label, color, value = 0, max = null, width = 240,
       `<linearGradient id="s${id}" x1="0" x2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.25"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient></defs>`,
       `<g class="mv" clip-path="url(#${id})">${glow}${flashes}</g>`);
   }
-  parts.push(pillShape(start));
+  if (pill) parts.push(pillShape(start));
   return svg(track, parts.join(''));
 }
 

@@ -4,7 +4,7 @@ import { digest } from './hooks/ledger.js'
 
 const preferences = async () => '/fixture-home/.claude/plugins/data/agent-arbiter/v1/projects/' + await digest('/fixture') + '/preferences.json'
 const BAND = { plugin: 'agent-arbiter', component: 'AbovePrompt',
-  props: { hasSurvey: false, isCollapsed: false, isWorking: false, bodyColumns: 90, maxRows: 4, scroll: { offset: 0, bodyRows: 4 }, view: {} } } as const
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, bodyColumns: 90, maxRows: 8, scroll: { offset: 0, bodyRows: 8 }, view: {} } } as const
 const PANE = { plugin: 'agent-arbiter', component: 'Pane', requestId: 'arbiter-rules',
   props: { title: 'Agent Arbiter', isFocused: true, bodyColumns: 80, placement: 'inline' } } as const
 
@@ -12,12 +12,15 @@ test('a new detention shows in the band once, flashes, and Open goes to it witho
   const w = world(on)
   w.files.set(await preferences(), JSON.stringify({ rules: [{ id: 'user:secret', action: 'file.write', target: 'secrets/**', effect: 'jail' }] }))
   const toasts: string[] = [], opened: string[] = [], ran: string[] = []
+  on('agent.spawn', () => ({ agentId: 'j-child', model: 'sonnet' }))
   on('tool.call', () => ({ result: 'ran' }))
   on('ui.toast', (_$, e) => { toasts.push(e.text); return { value: undefined } })
   on('ui.open', (_$, e) => { opened.push(e.id); return { value: { isPlaced: true } } })
   // Beneath the plugins: a command another plugin's hook ran would land here.
   on('command.run', (_$, e) => { ran.push(e.command); return { text: '' } })
   const settle = async (done: () => boolean) => { for (let n = 0; n < 400 && !done(); n++) await new Promise(resolve => setTimeout(resolve, 2)) }
+  await $.agent.spawn({ tool_use_id: 'band-spawn', prompt: 'Read the fixture.', description: 'Read the fixture.',
+    subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'sonnet', background: true, fork: false })
 
   // Nothing waits yet: the band draws nothing of its own, and counts in the background.
   let band = await $.ui.mount({ ...BAND, surface: 'desktop' })
@@ -34,12 +37,13 @@ test('a new detention shows in the band once, flashes, and Open goes to it witho
   const flashing = (await band.findAll({ type: 'Svg' })).filter(graphic => graphic.props.isInteractive)
   expect(flashing.map(graphic => graphic.props.alt)).toEqual(['1 agent(s) detained'])
   expect(String(flashing[0]?.props.source)).toMatch(/prefers-reduced-motion: no-preference/)
-  // The small band shows the one bar that matters most; pressing the bar lists every bar, and again folds it back.
-  expect(await band.find({ key: 'band-expand' })).toBeUndefined()
+  // The visible status label opens and closes the session's list.
+  expect((await band.find({ key: 'band-toggle-jail' }))?.text?.trim()).toBe('1 detained')
+  expect(await band.find({ key: 'session-runs' })).toBeUndefined()
   await band.press({ key: 'band-toggle-jail' })
-  expect(await band.find({ key: 'band-toggle-jail' })).toBeDefined()
+  expect(await band.find({ key: 'run:j-child' })).toBeDefined()
   await band.press({ key: 'band-toggle-jail' })
-  expect(await band.find({ key: 'band-toggle-jail' })).toBeDefined()
+  expect(await band.find({ key: 'session-runs' })).toBeUndefined()
   await band.press({ key: 'band-open' })
   await settle(() => opened.length > 0)
   expect(opened).toEqual(['arbiter-rules'])
@@ -53,6 +57,7 @@ test('a new detention shows in the band once, flashes, and Open goes to it witho
   // Closed by the person, the band stays closed until something new waits.
   band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await band.find({ type: 'Text', text: '⛓' }))?.text).toBe('⛓')
+  expect((await band.find({ key: 'band-toggle-jail' }))?.text?.trim()).toBe('1 detained')
   await band.press({ key: 'band-hide' })
   expect(await band.find({ key: 'band-open' })).toBeUndefined()
   await band.unmount()

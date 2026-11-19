@@ -64,3 +64,22 @@ test('native maintenance cancellation does not delete user data or run a privile
  expect((await $.command.run({command:'arbiter',args:'purge all'})).text).toContain('Human composer')
  await ui.unmount()
 })
+
+test('native desktop session history opens a recorded agent run', async ($, on) => {
+ const w = world(on)
+ w.files.set(await pref(), JSON.stringify({ judge: false }))
+ on('agent.spawn', () => ({ agentId: 'history-agent', model: 'sonnet' }))
+ on('tool.call', () => ({ result: 'fixture' }))
+ on('ui.open', () => ({ value: { isPlaced: true } }))
+ await $.agent.spawn({ tool_use_id: 'history-spawn', prompt: 'Read a file.', description: 'Read a file.',
+  subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'sonnet', background: true, fork: false })
+ await $.tool.call({ tool: 'Read', agentId: 'history-agent', tool_use_id: 'history-read', file_path: '/fixture/notes.txt' })
+ await $.command.run({ command: 'arbiter', args: '' })
+ const ui = await mount($, 'desktop')
+ await ui.press({ key: 'tab-citizens' })
+ await ui.select({ key: 'agent-section', value: 'history' })
+ expect(await ui.find({ key: 'run:history-agent' })).toBeDefined()
+ await ui.press({ key: 'run:history-agent' })
+ expect(await ui.find({ text: 'Tools used: Read 1' })).toBeDefined()
+ await ui.unmount()
+})

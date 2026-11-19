@@ -121,15 +121,20 @@ test('in a terminal the pill sits at the fill end, between the done and the wait
   setLanguage('en');
 });
 
-test('the bar fills its row and pressing it opens or closes the band',()=>{
+test('the bar fills its row and the status label opens or closes the band',()=>{
   setLanguage('en');
   const row=bandRows({detained:0,pending:3,decided:6,detainedAt:0})[0];
-  const narrow=find(drawRow(table(),'desktop',row,60,undefined,true),'Svg')[1].props.width;
-  const wide=find(drawRow(table(),'desktop',row,140,undefined,true),'Svg')[1].props.width;
-  assert.ok(wide>narrow+400,'a wider row gets a longer track, not a fixed stub');
   let pressed=0;
-  const drawn=drawRow(table(),'desktop',row,100,undefined,true,()=>pressed++);
+  const click=()=>pressed++;
+  const narrow=find(drawRow(table(),'desktop',row,60,undefined,true,click),'Svg')[1].props.width;
+  const wide=find(drawRow(table(),'desktop',row,140,undefined,true,click),'Svg')[1].props.width;
+  assert.ok(wide>narrow+400,'a wider row gets a longer track, not a fixed stub');
+  const drawn=drawRow(table(),'desktop',row,100,undefined,true,click);
   const [button]=find(drawn,'Button');
-  assert.ok(button && find(button,'Svg').length===2,'the icon and the meter are the button');
+  assert.equal(button.props.label,'3 to review');
+  assert.equal(find(button,'Svg').length,0);
+  const [,track]=find(drawn,'Svg');
+  assert.doesNotMatch(track.props.source,/<text/);
+  assert.match(track.props.source,/<animate /);
   button.props.onPress();assert.equal(pressed,1);
 });

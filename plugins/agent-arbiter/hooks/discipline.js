@@ -129,7 +129,10 @@ export async function disciplineState($, ctx, fresh = false, shared = false) {
   const cached = snapshots.get(ctx.projectId), now = Date.now();
   if (cached && !fresh && now - cached.at < SNAPSHOT_TTL_MS) return cached.state;
   let events = [];
-  try { events = (await (shared ? readProjectShared : readProject)($, ctx)).events; } catch { /* Process memory still applies. */ }
+  try {
+    const result = shared ? await readProjectShared($, ctx) : await readProject($, ctx);
+    events = result.events;
+  } catch { /* Process memory still applies. */ }
   const state = reduceDiscipline(events, ctx.projectId, now);
   for (const record of localViolations.get(ctx.projectId) ?? []) {
     if (!state.violations.some(known => known.id === record.id)) state.violations.push({ ...record });
