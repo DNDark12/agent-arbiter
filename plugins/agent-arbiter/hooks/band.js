@@ -7,15 +7,51 @@ import { roleOf } from './roles.js';
 import { maybeOpenPinnedPane, openRulesPane } from './rules-pane.js';
 import { bandSnapshot, hideBand, refreshStatus, selectBandProgress, setBandExpanded, PULSE_MS } from './status.js';
 import { decisionNote, sessionAsks } from './notes.js';
-import { DAILY_TRIALS } from './judge.js';
+import { DAILY_TRIALS, decideFinding, reduceReviews } from './judge.js';
 import { COLORS, fraction, pillTrackSvg, pillWidth, roleIcon, svgOf } from './visuals.js';
-import { progressGraph, progressItems, progressTitle } from './progress-view.js';
+import { bandDetail, bandDetailModel, progressTitle } from './progress-view.js';
+import { readProjectShared } from './events.js';
+import { releaseViolations } from './discipline.js';
 
 let lastContext = null;
 
 async function contextOf($) {
   lastContext = await observationContext($, { recoverPreferences: true });
   return lastContext;
+}
+
+// Decisions taken in the band are the person's own presses, as in the panel.
+const busy = new Set();
+const uiSource = () => ({ kind: 'ui', origin: 'ui', id: crypto.randomUUID() });
+
+async function act($, ctx, ref, work) {
+  if (busy.has(ref)) return;
+  busy.add(ref);
+  try { $.ui.invalidate('ui.render'); } catch { /* Redrawn anyway. */ }
+  try { await work(); }
+  catch (error) { try { $.ui.toast(t('band.decideFailed', { error: error?.message ?? String(error) })); } catch { /* Best effort. */ } }
+  finally { busy.delete(ref); await refreshStatus($, ctx); }
+}
+
+function decideInBand($, ctx, ref, decision) {
+  return act($, ctx, ref, async () => {
+    const reviews = reduceReviews((await readProjectShared($, ctx)).events, ctx.projectId);
+    if (!reviews.some(review => review.findings.some(finding => finding.ref === ref && finding.state === 'open'))) throw new Error(t('pane.decideGone'));
+    if (!await decideFinding($, ctx, reviews, ref, decision, uiSource())) throw new Error(t('pane.decideGone'));
+  });
+}
+
+// Releasing lets the agent be sent again, so the person says so once more.
+function releaseInBand($, ctx, id) {
+  const record = bandSnapshot(ctx)?.detainedRecords?.find(item => item.id === id);
+  if (!record) return;
+  return act($, ctx, id, async () => {
+    let answer = '';
+    try { answer = await $.ui.ask(t('band.releaseAsk', { name: record.citizen?.name ?? t('pane.agentKind.subagent') }), [t('band.releaseNo'), t('band.releaseYes')]); }
+    catch { /* No answer releases nothing. */ }
+    if (answer !== t('band.releaseYes')) return;
+    await releaseViolations($, ctx, [id], uiSource());
+  });
 }
 
 // The inbox collects the decisions waiting in the project.
@@ -161,10 +197,12 @@ export function registerBand(on) {
       () => selectBandProgress($, ctx, row.key), labelColumns));
     const room = maxRows - 1;
     if (!selected || room < 1) return h.Box({ flexDirection: 'column', gap, children: bars });
-    const items = progressItems(snapshot, selected.key), more = items.length > room;
-    return h.Box({ flexDirection: 'column', children: [...bars,
-      progressGraph(h, e.surface, selected.key, items.slice(0, more ? room - 1 : room), more ? showDetails : null),
-    ] });
+    const detail = bandDetail(h, selected.key, bandDetailModel(snapshot, selected.key), room, {
+      busy, more: showDetails,
+      decide: (ref, decision) => void decideInBand($, ctx, ref, decision),
+      release: id => void releaseInBand($, ctx, id),
+    });
+    return h.Box({ flexDirection: 'column', children: [...bars, detail] });
   });
 
   // The rule that stopped a call, and what came of it, under that call's row.

@@ -4,7 +4,7 @@ import {sprite,ROLES,ROLE_EMOJI} from '../plugins/agent-arbiter/hooks/sprites.js
 import {barText,barSvg,roleIcon,fraction,pillTrackSvg,pillWidth} from '../plugins/agent-arbiter/hooks/visuals.js';
 import {bandRows,drawRow} from '../plugins/agent-arbiter/hooks/band.js';
 import {statusCounts} from '../plugins/agent-arbiter/hooks/status.js';
-import {progressItems} from '../plugins/agent-arbiter/hooks/progress-view.js';
+import {progressItems,bandDetail,bandDetailModel} from '../plugins/agent-arbiter/hooks/progress-view.js';
 import {noteDecision,decisionNote,forgetNotes} from '../plugins/agent-arbiter/hooks/notes.js';
 import {setLanguage} from '../plugins/agent-arbiter/hooks/i18n.js';
 import {ROLES as AGENT_ROLES} from '../plugins/agent-arbiter/hooks/roles.js';
@@ -162,4 +162,31 @@ test('review items branch under their agent and judge usage uses the same review
   assert.deepEqual(progressItems({recentReviews},'reviews',now).map(item=>[item.key,Boolean(item.branch)]),
     [['latest',false],['open',true],['older',false],['old',true]]);
   assert.deepEqual(progressItems({recentReviews},'judge',now).map(item=>item.key),['latest']);
+});
+
+test('the open list shows only what waits, with its actions, and folds the settled into dots',()=>{
+  setLanguage('vi');
+  const now=2*86400000;
+  const recentReviews=[
+    {id:'a',at:now-100,quality:90,exemplar:{state:'approved'},findings:[{ref:'r1',claim:'Done check',state:'confirmed',severity:'medium'},{ref:'r2',claim:'Wrong claim',state:'dismissed',severity:'medium'}]},
+    {id:'b',at:now-10,quality:60,exemplar:{state:'none'},findings:[{ref:'r3',claim:'Rollback untested',state:'open',severity:'high'},{ref:'r4',claim:'Minor',state:'noted',severity:'low'},{ref:'r5',claim:'Expired card',state:'open',severity:'medium'}]},
+  ];
+  const model=bandDetailModel({recentReviews},'reviews',now);
+  assert.deepEqual(model.waiting.map(item=>item.ref),['r3','r5']);
+  assert.equal(model.settled.length,3);assert.equal(model.figure,'3 đã xử lý');
+  const decided=[];
+  const drawn=bandDetail(table(),'reviews',model,6,{busy:new Set(['r5']),more:()=>{},decide:(ref,decision)=>decided.push([ref,decision]),release:()=>{}});
+  assert.equal(drawn.props.key,'progress-tree-reviews');
+  const buttons=find(drawn,'Button');
+  assert.deepEqual(buttons.map(button=>button.props.key),['confirm:r3','dismiss:r3'],'a finding being recorded shows no buttons');
+  buttons[1].props.onPress();assert.deepEqual(decided,[['r3','dismissed']]);
+  assert.ok(texts(drawn).includes('…'));
+  assert.ok(!texts(drawn).includes('Done check'),'settled findings carry no text');
+  const tight=bandDetail(table(),'reviews',model,2,{busy:new Set(),more:()=>{},decide:()=>{},release:()=>{}});
+  assert.deepEqual(find(tight,'Button').map(button=>button.props.key),['confirm:r3','dismiss:r3','band-more'],'what does not fit opens the panel');
+  const judge=bandDetailModel({recentReviews},'judge',now);
+  assert.deepEqual([judge.waiting.length,judge.settled.length,judge.figure],[0,2,'trung bình 75/100']);
+  const jail=bandDetailModel({detainedRecords:[{id:'v1',citizen:{name:'court-coder'},ruleIds:['user:x']}]},'jail');
+  assert.deepEqual(find(bandDetail(table(),'jail',jail,4,{busy:new Set(),more:()=>{},decide:()=>{},release:()=>{}}),'Button').map(button=>button.props.key),['release:v1']);
+  setLanguage('en');
 });

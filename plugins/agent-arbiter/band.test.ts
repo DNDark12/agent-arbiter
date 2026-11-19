@@ -118,3 +118,35 @@ test('the inbox stays compact when clear and opens a detained agent’s docket',
   expect((await pane.find({ key: 'violation-filter' }))?.props.value).toBe('active')
   await pane.unmount()
 })
+
+test('the open list releases a detainee in place, after the person says so once more', async ($, on) => {
+  const w = world(on)
+  w.files.set(await preferences(), JSON.stringify({ rules: [{ id: 'user:secret', action: 'file.write', target: 'secrets/**', effect: 'jail' }] }))
+  const answers = ['Keep detained', 'Release']
+  on('agent.spawn', () => ({ agentId: 'j-child', model: 'sonnet' }))
+  on('tool.call', (_$, e: any) => e.tool === 'AskUserQuestion'
+    ? { result: { questions: e.questions, answers: { [e.questions[0].question]: answers.shift() } } }
+    : { result: 'ran' })
+  on('ui.toast', () => ({ value: undefined }))
+  const settle = async (done: () => boolean) => { for (let n = 0; n < 400 && !done(); n++) await new Promise(resolve => setTimeout(resolve, 2)) }
+  await $.agent.spawn({ tool_use_id: 'band-spawn', prompt: 'Read.', description: 'Read.', subagentType: 'general-purpose',
+    provider: { plugin: 'engine', tier: 'core' }, parentModel: 'sonnet', background: true, fork: false })
+  let band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.unmount()
+  for (let n = 0; n < 20; n++) await new Promise(resolve => setTimeout(resolve, 2))
+  await $.tool.call({ tool: 'Write', agentId: 'j-child', tool_use_id: 'jw', file_path: '/fixture/secrets/key', content: 'x' })
+  await settle(() => w.events().some(e => e.kind === 'discipline.violation'))
+  for (let n = 0; n < 40; n++) await new Promise(resolve => setTimeout(resolve, 2))
+  band = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  await band.press({ key: 'band-toggle-jail' })
+  const release = (await band.findAll({ type: 'Button' })).find(node => String(node.props.key ?? node.key).startsWith('release:'))
+  expect(release).toBeDefined()
+  const key = String(release!.props.key ?? release!.key)
+  await band.press({ key })
+  for (let n = 0; n < 40; n++) await new Promise(resolve => setTimeout(resolve, 2))
+  expect(w.events().some(e => e.kind === 'discipline.released')).toBe(false)
+  await band.press({ key })
+  await settle(() => w.events().some(e => e.kind === 'discipline.released'))
+  expect(w.events().find(e => e.kind === 'discipline.released')?.data.source.origin).toBe('ui')
+  await band.unmount()
+})
