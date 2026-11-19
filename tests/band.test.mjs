@@ -61,7 +61,8 @@ test('the band bars: what waits first and decides whether it shows; activity joi
   assert.equal(find(full,'Svg').length,2);
   const meter=find(full,'Svg')[1].props.source;
   assert.ok(meter.includes('3 chờ duyệt · 6/9 đã xử lý'),'the figure rides inside the pill');
-  assert.match(meter,/<animate /,'a bar with a track glints');
+  assert.match(meter,/<animate .*attributeName="opacity"/,'groups pulse in their own hue');
+  assert.doesNotMatch(meter,/#FFFFFF/i,'no white flashes');
   assert.match(meter,/prefers-reduced-motion: reduce\) \{ \.mv \{ display: none/,'reduced motion hides the glints');
   assert.doesNotMatch(find(drawRow(table(),'desktop',rows[0],90),'Svg')[1].props.source,/<animate /,'a pill alone stands still');
   assert.deepEqual(texts(drawRow(table(),'desktop',rows[1],90,undefined,true)),[],'the small band has no figure');
@@ -121,7 +122,7 @@ test('in a terminal the pill sits at the fill end, between the done and the wait
   setLanguage('en');
 });
 
-test('the bar fills its row and the status label opens or closes the band',()=>{
+test('the bar fills its row and the native click target covers the artwork',()=>{
   setLanguage('en');
   const row=bandRows({detained:0,pending:3,decided:6,detainedAt:0})[0];
   let pressed=0;
@@ -131,10 +132,13 @@ test('the bar fills its row and the status label opens or closes the band',()=>{
   assert.ok(wide>narrow+400,'a wider row gets a longer track, not a fixed stub');
   const drawn=drawRow(table(),'desktop',row,100,undefined,true,click);
   const [button]=find(drawn,'Button');
-  assert.equal(button.props.label,'3 to review');
+  assert.equal(button.props.label,row.alt);
+  const target=find(drawn,'Box').find(box=>box.props.key==='band-hit-reviews');
+  assert.deepEqual([target.props.position,target.props.left,target.props.right,target.props.top,target.props.bottom],['absolute',0,0,0,0]);
+  assert.ok(texts(drawn).includes(' 3 to review '));
   assert.equal(find(button,'Svg').length,0);
   const [,track]=find(drawn,'Svg');
-  assert.doesNotMatch(track.props.source,/<text/);
+  assert.match(track.props.source,/<text[^>]*>6\/9<\/text>/);
   assert.match(track.props.source,/<animate /);
   button.props.onPress();assert.equal(pressed,1);
 });

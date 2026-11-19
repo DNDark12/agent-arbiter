@@ -61,6 +61,7 @@ export function bandRows(snapshot, now = Date.now(), asks = { asked: 0, allowed:
   });
   if (snapshot.judgedToday) rows.push({
     key: 'judge', waiting: false, color: COLORS.judge, pill: t('band.chipJudge', { count: snapshot.judgedToday, cap: DAILY_TRIALS }),
+    meterLabel: t('band.judgeMeterLabel'),
     alt: t('band.judgeFigure', { count: snapshot.judgedToday, cap: DAILY_TRIALS }), stat: '', value: snapshot.judgedToday, max: DAILY_TRIALS, role: 'research',
   });
   return rows;
@@ -70,40 +71,55 @@ export function bandRows(snapshot, now = Date.now(), asks = { asked: 0, allowed:
 const BUTTON_COLUMNS = 8;
 // The track takes the rest of the row; this only keeps a very wide window sane.
 const MAX_TRACK_COLUMNS = 160;
+const columnsOf = text => [...text].length + 2;
+
+function bandLabel(row, free, small) {
+  const folded = !small && row.stat ? `${row.pill} · ${row.stat}` : row.pill;
+  return free - columnsOf(folded) >= 8 ? folded : row.pill;
+}
 
 // One bar as drawn. columns is the row's width in cells and the track fills
 // what the pill leaves; the figure goes first when room runs short, then the
 // track, never the pill. small: the one-bar band, with no figure.
-export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, after = []) {
-  const Svg = svgOf(h, surface), free = columns - 4 - (tail ? BUTTON_COLUMNS : 0);
-  const columnsOf = text => [...text].length + 2;
-  const folded = !small && row.stat ? `${row.pill} · ${row.stat}` : row.pill;
-  const label = folded !== row.pill && free - columnsOf(folded) >= 8 ? folded : row.pill;
-  const trackColumns = row.max ? Math.min(MAX_TRACK_COLUMNS, free - columnsOf(label) - 1 - after.length * 3) : 0;
+export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, after = [], labelColumns = null) {
+  const Svg = svgOf(h, surface), free = columns - 4 - (tail || labelColumns ? BUTTON_COLUMNS : 0);
+  const spaceForTrack = label => row.max ? Math.min(MAX_TRACK_COLUMNS, free - (labelColumns ?? columnsOf(label)) - 1 - after.length * 3) : 0;
+  const meterLabel = row.meterLabel ?? row.pill;
+  const ratio = Svg && onPress && row.max ? `${row.value}/${row.max}` : '';
+  const badge = ratio && spaceForTrack(meterLabel) * 7.5 >= pillWidth(ratio) + 24 ? ratio : '';
+  const label = badge ? meterLabel : bandLabel(row, free, small);
+  const trackColumns = spaceForTrack(label);
   const lead = roleIcon(h, surface, row.role, 18, row.detained ? { detained: true, pulse: row.pulse } : { animate: row.waiting }, row.alt);
   const labelText = h.Text({ color: row.color, bold: true, maxLines: 1, children: ` ${label} ` });
-  const toggle = onPress ? h.Button({ key: 'band-toggle-' + row.key, label, plain: true, onPress, children: [labelText] }) : null;
-  const meter = [];
+  const toggle = children => h.Button({ key: 'band-toggle-' + row.key, label: row.alt, plain: true, onPress, children });
+  const content = [lead];
   if (Svg) {
-    if (toggle) meter.push(toggle);
-    // The native button owns the label. The dotted track only shows progress.
-    if (!toggle || trackColumns >= 4) {
-      const trackLabel = toggle ? '' : label;
-      const width = toggle ? trackColumns * 7.5 : Math.max(pillWidth(label) + 24, trackColumns * 7.5);
+    if (onPress) content.push(labelColumns ? h.Box({ key: 'label-' + row.key, width: labelColumns, flexShrink: 0, children: [labelText] }) : labelText);
+    if (!onPress || trackColumns >= 4) {
+      const trackLabel = onPress ? badge : label;
+      const width = onPress ? trackColumns * 7.5 : Math.max(pillWidth(label) + 24, trackColumns * 7.5);
       const drawn = pillTrackSvg({ label: trackLabel, color: row.color, value: row.value, max: row.max, width });
-      meter.push(Svg({ source: drawn.source, alt: row.alt, width: drawn.width, height: drawn.height }));
+      content.push(Svg({ source: drawn.source, alt: row.alt, width: drawn.width, height: drawn.height,
+        ...(row.value > 0 && row.max > 0 ? { isInteractive: true } : {}) }));
     }
+    content.push(...after);
+    // Claude buttons can only contain text. A stretched native button above
+    // the artwork covers the status row while keeping its controls separate.
+    if (onPress) content.push(h.Box({ key: 'band-hit-' + row.key, position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
+      flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', children: [toggle(['\u00a0'])] }));
   } else {
     const cells = trackColumns >= 4 ? trackColumns : 0, share = fraction({ value: row.value, max: row.max });
     // One decided item must show: never round a started bar back to empty, nor a part-done one to full.
     const done = share > 0 && cells ? Math.min(share < 1 ? cells - 1 : cells, Math.max(1, Math.round(share * cells))) : 0;
-    meter.push(h.Box({ flexDirection: 'row', flexShrink: 0, children: [
+    const meter = [
       ...(done ? [h.Text({ color: row.color, dimColor: true, children: '█'.repeat(done) })] : []),
-      toggle ?? labelText,
+      labelText,
       ...(cells - done ? [h.Text({ dimColor: true, children: '░'.repeat(cells - done) })] : []),
-    ] }));
+    ];
+    if (onPress) content.splice(0, 1, toggle([lead, ' ', ...meter, ...after]));
+    else content.push(h.Box({ flexDirection: 'row', flexShrink: 0, children: meter }), ...after);
   }
-  const bar = h.Box({ flexDirection: 'row', alignItems: 'center', gap: 1, flexShrink: 1, flexGrow: 1, children: [lead, ...meter, ...after] });
+  const bar = h.Box({ position: 'relative', flexDirection: 'row', alignItems: 'center', gap: 1, flexShrink: 1, flexGrow: 1, children: content });
   return h.Box({ key: row.key, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 1, children: [
     bar,
     ...(tail ? [tail] : []),
@@ -139,7 +155,11 @@ export function registerBand(on) {
         others ? [h.Text({ key: 'others', dimColor: true, children: '+' + others })] : []);
     }
     const gap = svgOf(h, e.surface) ? 1 : 0, fit = gap ? Math.floor((maxRows + 1) / 2) : maxRows;
-    const bars = rows.slice(0, Math.max(1, fit)).map((row, index) => drawRow(h, e.surface, row, bodyColumns ?? 80, index === 0 ? tail : undefined, false, toggle));
+    const columns = bodyColumns ?? 80, visible = rows.slice(0, Math.max(1, fit));
+    const free = columns - 4 - BUTTON_COLUMNS;
+    const widestLabel = Math.max(...visible.map(row => columnsOf(row.meterLabel ?? row.pill)));
+    const labelColumns = gap && visible.length > 1 && free - widestLabel >= 14 ? widestLabel : null;
+    const bars = visible.map((row, index) => drawRow(h, e.surface, row, columns, index === 0 ? tail : undefined, false, toggle, [], labelColumns));
     // Under the bars, the agents this session sent, newest last, as many as the rows left allow.
     const runs = snapshot.timeline?.agents ?? [], room = maxRows - (gap ? bars.length * 2 : bars.length) - 1;
     if (!runs.length || room < 2) return h.Box({ flexDirection: 'column', gap, children: bars });

@@ -37,8 +37,10 @@ test('a new detention shows in the band once, flashes, and Open goes to it witho
   const flashing = (await band.findAll({ type: 'Svg' })).filter(graphic => graphic.props.isInteractive)
   expect(flashing.map(graphic => graphic.props.alt)).toEqual(['1 agent(s) detained'])
   expect(String(flashing[0]?.props.source)).toMatch(/prefers-reduced-motion: no-preference/)
-  // The visible status label opens and closes the session's list.
-  expect((await band.find({ key: 'band-toggle-jail' }))?.text?.trim()).toBe('1 detained')
+  // The desktop's row-wide button leaves the visible artwork underneath.
+  expect((await band.find({ key: 'band-hit-jail' }))?.props).toMatchObject({position:'absolute',top:0,right:0,bottom:0,left:0})
+  expect((await band.find({ key: 'band-toggle-jail' }))?.props.label).toBe('1 agent(s) detained')
+  expect(await band.find({ type: 'Text', text: '1 detained', exact:false })).toBeDefined()
   expect(await band.find({ key: 'session-runs' })).toBeUndefined()
   await band.press({ key: 'band-toggle-jail' })
   expect(await band.find({ key: 'run:j-child' })).toBeDefined()
@@ -57,7 +59,7 @@ test('a new detention shows in the band once, flashes, and Open goes to it witho
   // Closed by the person, the band stays closed until something new waits.
   band = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await band.find({ type: 'Text', text: '⛓' }))?.text).toBe('⛓')
-  expect((await band.find({ key: 'band-toggle-jail' }))?.text?.trim()).toBe('1 detained')
+  expect((await band.find({ key: 'band-toggle-jail' }))?.text).toContain('1 detained')
   await band.press({ key: 'band-hide' })
   expect(await band.find({ key: 'band-open' })).toBeUndefined()
   await band.unmount()

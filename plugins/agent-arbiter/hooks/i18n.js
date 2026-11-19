@@ -245,7 +245,7 @@ Object.assign(TEXT.en, {
  'band.open':'Open',
  'band.chipReview':'{count} to review','band.chipJail':'{count} detained',
  'band.reviewStat':'{decided}/{total} decided',
- 'band.chipAsks':'{count} asked','band.asksFigure':'{asked} approval asks this session, {allowed} allowed','band.asksStat':'{allowed} allowed','band.chipJudge':'{count}/{cap} judged','band.judgeFigure':'{count} of {cap} judge reviews used today',
+ 'band.chipAsks':'{count} asked','band.asksFigure':'{asked} approval asks this session, {allowed} allowed','band.asksStat':'{allowed} allowed','band.chipJudge':'{count}/{cap} judged','band.judgeMeterLabel':'Judge reviews','band.judgeFigure':'{count} of {cap} judge reviews used today',
  'overview.state':'Status','overview.waitingPill':'{count} waiting on you','overview.calmPill':'All clear','overview.waiting':'Waiting on you','overview.decided':'Decided, 14 days','overview.detained':'Detained','overview.judge':'Judge today','overview.violations':'Violations in effect','overview.mode':'Mode','overview.none':'none','overview.chipReviews':'Reviews {count}','overview.chipJail':'Detained {count}','overview.calm':'Nothing waits on you.','overview.calmHint':'Approvals, review decisions and detained agents show up here.',
  'toast.detained':'Agent Arbiter · {count} agent(s) detained. Open the band to see why.','toast.pending':'Agent Arbiter · {count} review decision(s) waiting.',
  'note.approved':'allowed','note.session-allow':'allowed for the session','note.refused':'you refused','note.unanswered':'no answer, not run','note.denied-by-rule':'denied by rule','note.retry-after-refusal':'denied: retried after a refusal','note.other':'checked','note.custom':'custom rule',
@@ -290,7 +290,7 @@ Object.assign(TEXT.vi, {
  'band.open':'Mở',
  'band.chipReview':'{count} chờ duyệt','band.chipJail':'{count} bị giam',
  'band.reviewStat':'{decided}/{total} đã xử lý',
- 'band.chipAsks':'{count} lần hỏi','band.asksFigure':'{asked} lần hỏi duyệt trong phiên, {allowed} lần cho phép','band.asksStat':'{allowed} cho phép','band.chipJudge':'{count}/{cap} lượt chấm','band.judgeFigure':'Đã dùng {count}/{cap} lượt chấm hôm nay',
+ 'band.chipAsks':'{count} lần hỏi','band.asksFigure':'{asked} lần hỏi duyệt trong phiên, {allowed} lần cho phép','band.asksStat':'{allowed} cho phép','band.chipJudge':'{count}/{cap} lượt chấm','band.judgeMeterLabel':'Lượt chấm','band.judgeFigure':'Đã dùng {count}/{cap} lượt chấm hôm nay',
  'overview.state':'Trạng thái','overview.waitingPill':'{count} chờ bạn','overview.calmPill':'Ổn định','overview.waiting':'Chờ bạn','overview.decided':'Đã xử lý, 14 ngày','overview.detained':'Bị giam','overview.judge':'Thẩm phán hôm nay','overview.violations':'Vi phạm hiệu lực','overview.mode':'Chế độ','overview.none':'không','overview.chipReviews':'Đánh giá {count}','overview.chipJail':'Bị giam {count}','overview.calm':'Không có gì chờ bạn.','overview.calmHint':'Yêu cầu duyệt, đánh giá cần quyết định và agent bị giam sẽ hiện ở đây.',
  'toast.detained':'Agent Arbiter · {count} agent bị giam. Mở band để xem lý do.','toast.pending':'Agent Arbiter · {count} đánh giá chờ bạn quyết định.',
  'note.approved':'đã cho phép','note.session-allow':'cho phép cả phiên','note.refused':'bạn từ chối','note.unanswered':'không trả lời, không chạy','note.denied-by-rule':'luật chặn','note.retry-after-refusal':'chặn vì thử lại sau khi bị từ chối','note.other':'đã kiểm tra','note.custom':'luật tuỳ chỉnh',
@@ -459,17 +459,19 @@ Object.assign(TEXT.en, {
  'settings.judgeModel':'Judge model','settings.judgeModel.haiku':'Haiku: fastest, cheapest','settings.judgeModel.sonnet':'Sonnet: balanced','settings.judgeModel.opus':'Opus: most careful, most costly',
  'pane.auto':'Auto review {count}','pane.autoRunning':'Reviewing on its own {done}/{total}…',
  'pane.autoDone':'Auto review: {confirmed} correct, {dismissed} wrong, {unsure} left for you.','pane.autoUnsure':'The model could not tell.',
+ 'pane.autoFailed':'{failed} could not be processed and are still waiting.','pane.autoModelFailed':'The model did not return a usable answer. You can retry or decide this finding.',
  'pane.autoHint':'Auto review asks the judge model ({model}) to check each waiting finding against the files of its turn, one call per finding, and records the answer as yours, marked automatic. What it cannot tell stays for you.',
  'pane.autoNote':'Auto review: {why}',
- 'pane.translate':'Translate this page','pane.translating':'Translating…','pane.translated':'Translated {count} sentence(s).','pane.translateNone':'Nothing new to translate.',
+ 'pane.translate':'Translate this page','pane.translateAction':'Translate','pane.translating':'Translating…','pane.translated':'Translated {count} sentence(s).','pane.translateNone':'Nothing new to translate.',
 });
 Object.assign(TEXT.vi, {
  'settings.judgeModel':'Model chấm điểm','settings.judgeModel.haiku':'Haiku: nhanh và rẻ nhất','settings.judgeModel.sonnet':'Sonnet: cân bằng','settings.judgeModel.opus':'Opus: kỹ nhất, tốn nhất',
  'pane.auto':'Tự duyệt {count} mục','pane.autoRunning':'Đang tự duyệt {done}/{total}…',
  'pane.autoDone':'Tự duyệt xong: {confirmed} đúng, {dismissed} sai, {unsure} để bạn xem.','pane.autoUnsure':'Model không chắc.',
+ 'pane.autoFailed':'{failed} mục gặp lỗi và vẫn đang chờ.','pane.autoModelFailed':'Không nhận được câu trả lời hợp lệ từ model. Bạn có thể thử lại hoặc tự duyệt mục này.',
  'pane.autoHint':'Tự duyệt nhờ model chấm ({model}) đối chiếu từng lỗi đang chờ với các file của lượt đó, mỗi lỗi một lần gọi, rồi ghi câu trả lời thay bạn kèm dấu tự động. Lỗi nào model không chắc thì vẫn để bạn xem.',
  'pane.autoNote':'Tự duyệt: {why}',
- 'pane.translate':'Dịch trang này sang tiếng Việt','pane.translating':'Đang dịch…','pane.translated':'Đã dịch {count} câu.','pane.translateNone':'Không có câu mới cần dịch.',
+ 'pane.translate':'Dịch trang này sang tiếng Việt','pane.translateAction':'Dịch','pane.translating':'Đang dịch…','pane.translated':'Đã dịch {count} câu.','pane.translateNone':'Không có câu mới cần dịch.',
 });
 
 // Session history: the main agent's thread and the agents it sent.

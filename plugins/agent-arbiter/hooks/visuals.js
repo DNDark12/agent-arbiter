@@ -45,12 +45,10 @@ export function barText(bar, cells) {
 // track, square dots that grow denser and brighter toward the fill's end, and a
 // solid pill there that names what waits (and the figure, when it fits). With
 // nothing done yet the pill opens the track. A count with no known total (a
-// detention) is the pill alone. A moving bar adds two glints over the dots, a
-// soft shine sweeping toward the pill and a few dots catching the light; both
-// sit in one group that a reduced-motion setting hides, so the still picture
-// is the same bar.
+// detention) is the pill alone. Groups of dots pulse in the bar's own color
+// across the filled area. Reduced motion uses a still rendering of the dots.
 const PILL_HEIGHT = 20;
-const DOT = 3, PITCH = 4, DOT_ROWS = 4, GLINT_GROUPS = 5;
+const DOT = 3, PITCH = 4, DOT_ROWS = 4, PULSE_GROUPS = 8;
 const escapeText = text => String(text).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]);
 // Close enough to the system font at 11.5px semibold to size the pill.
 export const textWidth = text => [...String(text)].reduce((sum, char) => sum + (/[0-9]/.test(char) ? 6.9 : char === ' ' ? 3.3 : /[A-ZĐ]/.test(char) ? 7.6 : 6.4), 0);
@@ -70,34 +68,32 @@ export function pillTrackSvg({ label, color, value = 0, max = null, width = 240,
   const start = share > 0 ? Math.min(share < 1 ? free - Math.min(10, free / 2) : free, Math.max(Math.min(10, free / 2), Math.round(share * free))) : 0, end = start + pill;
   const top = (PILL_HEIGHT - (DOT_ROWS - 1) * PITCH - DOT) / 2;
   const parts = [`<rect width="${track}" height="${PILL_HEIGHT}" rx="${mid}" fill="#7F7F7F" fill-opacity="0.16"/>`];
-  const glints = Array.from({ length: GLINT_GROUPS }, () => []);
+  const animate = moving && start > 12;
+  const pulses = Array.from({ length: PULSE_GROUPS }, () => []);
+  const still = [];
   for (let x = PITCH; x < start - 2; x += PITCH) {
-    const ramp = Math.pow(x / Math.max(1, start), 1.6);
+    const ramp = Math.pow(x / start, 1.3);
     for (let row = 0; row < DOT_ROWS; row++) {
-      const seed = hash(x * 31 + row * 7);
-      if (seed > 0.3 + ramp * 0.7) continue;
-      const at = `x="${x}" y="${top + row * PITCH}" width="${DOT}" height="${DOT}" rx="0.4"`;
-      parts.push(`<rect ${at} fill="${fill}" opacity="${Math.min(1, (0.3 + ramp * 0.8) * (0.75 + 0.35 * hash(seed * 997))).toFixed(2)}"/>`);
-      if (hash(seed * 53) < 0.1 + ramp * 0.25) glints[Math.floor(hash(seed * 71) * GLINT_GROUPS)].push(`<rect ${at}/>`);
+      if (hash(x * 31 + row * 7) > 0.62 + ramp * 0.38) continue;
+      const dot = `M${x} ${top + row * PITCH}h${DOT}v${DOT}h-${DOT}z`;
+      still.push(dot);
+      if (animate) pulses[Math.floor(x / (PITCH * 2)) % PULSE_GROUPS].push(dot);
     }
   }
   for (let i = 1; i < 4; i++) {
     const x = Math.round((i * track) / 4);
     if (x > end + 6 && x < track - 6) parts.push(`<rect x="${x}" y="6" width="1.5" height="8" rx="0.75" fill="#8F9BB1" opacity="0.55"/>`);
   }
-  if (moving && start > 12) {
-    const id = `f${track}-${start}-${fill.replace(/\W/g, '')}`, band = Math.max(40, Math.round(start * 0.25));
-    const glow = `<rect x="${-band}" width="${band}" height="${PILL_HEIGHT}" fill="url(#s${id})"><animate attributeName="x" from="${-band}" to="${start}" dur="1.1s" repeatCount="indefinite"/></rect>`;
-    const flashes = glints.map((group, i) => {
+  if (animate) {
+    const wave = pulses.map((group, index) => {
       if (!group.length) return '';
-      const dur = (0.9 + (i / GLINT_GROUPS) * 1.3).toFixed(2), begin = (-hash(i * 89 + 3) * Number(dur)).toFixed(2);
-      return `<g fill="#FFFFFF" opacity="0"><animate attributeName="opacity" values="0;1;0;0" keyTimes="0;.06;.16;1" dur="${dur}s" begin="${begin}s" repeatCount="indefinite"/>${group.join('')}</g>`;
+      const begin = (-1.8 + index * 1.8 / PULSE_GROUPS).toFixed(2);
+      return `<path d="${group.join('')}" opacity=".52"><animate attributeName="opacity" values=".32;.98;.7;.32" keyTimes="0;.3;.52;1" dur="1.8s" begin="${begin}s" repeatCount="indefinite"/></path>`;
     }).join('');
-    parts.push(`<style>@media (prefers-reduced-motion: reduce) { .mv { display: none } }</style>`,
-      `<defs><clipPath id="${id}"><rect width="${start + mid}" height="${PILL_HEIGHT}" rx="${mid}"/></clipPath>` +
-      `<linearGradient id="s${id}" x1="0" x2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.25"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient></defs>`,
-      `<g class="mv" clip-path="url(#${id})">${glow}${flashes}</g>`);
+    parts.push('<style>.rest { display: none } @media (prefers-reduced-motion: reduce) { .mv { display: none } .rest { display: inline } }</style>',
+      `<g class="mv" fill="${fill}">${wave}</g>`);
   }
+  if (still.length) parts.push(`<path${animate ? ' class="rest"' : ''} d="${still.join('')}" fill="${fill}" opacity=".72"/>`);
   if (pill) parts.push(pillShape(start));
   return svg(track, parts.join(''));
 }

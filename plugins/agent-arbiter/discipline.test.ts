@@ -152,12 +152,14 @@ test('native lessons reach the next agent of the same type; the pane shows score
 test('native judge reviews a finished run in the background; the pane confirms its finding',async($,on)=>{
  const w=world(on);const asked:any[]=[]
  on('ui.open',()=>({value:{isPlaced:true}}))
+ on('ui.toast',()=>({value:undefined}))
  on('agent.spawn',()=>({agentId:'j-child',model:'claude-sonnet-5-5'}))
  on('turn.complete',()=>({text:''}))
  on('tool.call',()=>({result:'ran'}))
- on('model.complete',(_$,e)=>{asked.push(e);return {value:{isAnswered:true,usage:{input_tokens:800,output_tokens:90},text:JSON.stringify({difficulty:'medium',
+ on('model.complete',(_$,e)=>{asked.push(e);if(e.maxTokens===300)return {value:{isAnswered:true,text:'{"decision":"dismissed","why":"Fixture finding is wrong."}'}};return {value:{isAnswered:true,usage:{input_tokens:800,output_tokens:90},text:JSON.stringify({difficulty:'medium',
   scores:{completeness:4,honesty:2,verification:1,scope:5,correctness:null,performance:null,security:null},
-  findings:[{severity:'high',dimension:'honesty',claim:'Report claims a test run that is not in the tool calls',evidence:'no test command recorded'}],
+  findings:[{severity:'high',dimension:'honesty',claim:'Report claims a test run that is not in the tool calls',evidence:'no test command recorded'},
+   {severity:'high',dimension:'correctness',claim:'Fixture finding awaiting auto review',evidence:'src/a.js'}],
   exemplar:{worthy:false,why:''}})}}})
  w.files.set('/fixture/src/a.js','export const a = 1\n')
  await $.agent.spawn({tool_use_id:'j1',prompt:'Add a and test it',description:'fixture',subagentType:'court-fixture-coder',parentModel:'parent',background:true,fork:false})
@@ -185,6 +187,20 @@ test('native judge reviews a finished run in the background; the pane confirms i
  const decision=w.events().find(e=>e.kind==='judge.decision')
  expect(decision.data.decision).toBe('confirmed')
  expect((await $.command.run({command:'arbiter',args:'citizens'})).text).toContain('Development · Easy · quality 60/100 · 1 scored')
+ const band=await $.ui.mount({plugin:'agent-arbiter',surface:'desktop',component:'AbovePrompt',
+  props:{hasSurvey:false,isCollapsed:false,isWorking:false,bodyColumns:90,maxRows:6,scroll:{offset:0,bodyRows:6},view:{}}})
+ await band.press({key:'band-toggle-reviews'})
+ const tracks=(await band.findAll({type:'Svg'})).filter(node=>Number(node.props.width)>18)
+ expect(tracks).toHaveLength(2)
+ expect(tracks[0].props.width).toBe(tracks[1].props.width)
+ expect((await band.find({key:'label-reviews'}))?.props.width).toBe((await band.find({key:'label-judge'}))?.props.width)
+ expect(tracks[0].props.source).toContain('>1/2</text>')
+ await band.unmount()
+ await ui.press({key:'back-reviews'})
+ await ui.press({key:'auto-review'})
+ const automatic=w.events().find(e=>e.kind==='judge.decision' && e.data.source.auto)
+ expect(automatic?.data.decision).toBe('dismissed')
+ expect(asked).toHaveLength(2)
  await ui.press({key:'tab-settings'})
  await ui.press({key:'toggle-judge'})
  expect(JSON.parse(w.files.get(await preferences())!).judge).toBe(false)

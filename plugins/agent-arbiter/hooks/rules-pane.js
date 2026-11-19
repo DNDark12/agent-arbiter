@@ -18,10 +18,12 @@ import {quarantineProject} from './events.js';
 import {pruneProject,RETENTION_DAYS} from './retention.js';
 
 const PANE='arbiter-rules', PAGE_SIZE=6;
+const MENU_ICONS={settings:'⚙︎',rules:'⚖︎',violations:'⚠︎',citizens:'◎'};
+const SECTION_ICONS={history:'◷',scores:'▥',lessons:'▤',reviews:'✓'};
 const states=new Map();
 function key(ctx){return `${ctx.archiveRoot}:${ctx.projectId}`;}
 function stateFor(ctx){
-  if(!states.has(key(ctx)))states.set(key(ctx),{tab:'settings',search:'',group:'all',page:0,editor:null,confirm:null,message:'',
+  if(!states.has(key(ctx)))states.set(key(ctx),{tab:'settings',search:'',group:'all',editor:null,confirm:null,message:'',
     pending:false,maintenance:false,diagnostics:null,data:null,pages:{},violationFilter:'all',agentSection:'scores',scoreScope:'project',scoreKind:'all',agentSearch:'',lessonScope:'project',reviewFilter:'pending',detail:null,
     busy:new Set(),autoRun:null,autoNotes:new Map(),translating:false});
   return states.get(key(ctx));
@@ -30,6 +32,9 @@ function stateFor(ctx){
 function localTime(at){const date=new Date(at);return new Date(at-date.getTimezoneOffset()*60000).toISOString().slice(0,16).replace('T',' ');}
 function redraw($){$.ui.invalidate('ui.render');}
 function change($,state,values){Object.assign(state,values);redraw($);}
+function iconButton(h,key,label,icon,onPress){
+  return h.Button({key,label,plain:true,children:[icon],onPress});
+}
 function errorText(error){return t('pane.failed',{error:error instanceof Error?error.message:String(error)});}
 async function runAction($,ctx,action){
   const state=stateFor(ctx);if(state.pending)return false;
@@ -48,7 +53,7 @@ async function saveEditor($,ctx){
   const wanted={action:editor.action,target:editor.target,effect:editor.effect};
   const saved=await mutate($,ctx,latest=>editor.original?
     updateUserRule(latest,editor.original.id,wanted,editor.original):createUserRule(latest,{...wanted,id:`user:${crypto.randomUUID()}`}));
-  if(saved)change($,state,{editor:null,tab:'rules',group:'custom',search:'',page:0});
+  if(saved){state.pages.page=0;change($,state,{editor:null,tab:'rules',group:'custom',search:''});}
 }
 async function confirmAction($,ctx){
   const state=stateFor(ctx),confirmation=state.confirm;if(!confirmation)return;
@@ -82,7 +87,10 @@ async function confirmAction($,ctx){
     if(confirmation.type==='purge-project' || confirmation.type==='purge-all')return (await purgeData($,ctx,confirmation.type==='purge-all')).text;
     throw new Error('Unknown pane action');
   });
-  if(success)change($,state,{confirm:null,editor:null,detail:null,...(confirmation.type==='reset'?{search:'',group:'all',page:0}:{})});
+  if(success){
+    if(confirmation.type==='reset')state.pages.page=0;
+    change($,state,{confirm:null,editor:null,detail:null,...(confirmation.type==='reset'?{search:'',group:'all'}:{})});
+  }
 }
 function groupOf(rule){const group=rule.action.split('.')[0];return rule.source==='user'?'custom':group==='fs'?'file':group==='exec'?'system':group;}
 function editorFor(rule){return rule?{action:rule.action,target:rule.target,effect:rule.effect,original:{id:rule.id,action:rule.action,target:rule.target,effect:rule.effect}}:{action:'file.write',target:'**',effect:'ask',original:null};}
@@ -101,7 +109,7 @@ function confirmationView($,h,ctx,state){
 function editorView($,h,ctx,state){
   const e=state.editor,command=e.action==='bash.command';
   return h.Box({flexDirection:'column',gap:1,children:[
-    h.Button({key:'back-rules',label:t('pane.back'),plain:true,onPress:()=>change($,state,{editor:null})}),
+    iconButton(h,'back-rules',t('pane.back'),'←',()=>change($,state,{editor:null})),
     h.Text({bold:true,children:t(e.original?'pane.editor.edit':'pane.editor.new')}),
     h.Select({key:'rule-action',label:t('pane.action'),value:e.action,options:ACTIONS.map(value=>({value,label:actionLabel(value)})),
       onSelect:value=>{e.action=value;redraw($);}}),
@@ -120,35 +128,31 @@ function rulesView($,h,ctx,state,settings){
   if(state.editor)return editorView($,h,ctx,state);
   const rows=listRules(settings),q=state.search.toLocaleLowerCase(),filtered=rows.filter(rule=>
     (state.group==='all' || groupOf(rule)===state.group) && `${ruleLabel(rule)} ${rule.action} ${rule.target}`.toLocaleLowerCase().includes(q));
-  const page=Math.max(0,Math.min(state.page,Math.ceil(filtered.length/PAGE_SIZE)-1));
-  const visible=filtered.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE);
+  const {visible,controls}=paged($,h,state,'page',filtered);
+  const filter=values=>{state.pages.page=0;change($,state,values);};
   return h.Box({flexDirection:'column',gap:1,children:[
     h.Box({flexDirection:'row',flexWrap:'wrap',gap:1,children:[
-      h.Input({key:'rule-search',label:t('pane.search'),value:state.search,placeholder:t('pane.searchHint'),onInput:value=>change($,state,{search:value,page:0}),onSubmit:value=>change($,state,{search:value,page:0})}),
+      h.Input({key:'rule-search',label:t('pane.search'),value:state.search,placeholder:t('pane.searchHint'),onInput:value=>filter({search:value}),onSubmit:value=>filter({search:value})}),
       h.Button({key:'new-rule',label:'+ '+t('pane.add'),variant:'primary',onPress:()=>change($,state,{editor:editorFor(null),message:''})}),
     ]}),
     h.Box({flexDirection:'row',flexWrap:'wrap',gap:1,justifyContent:'space-between',children:[
-      h.Select({key:'rule-group',value:state.group,options:['all','git','db','file','package','deploy','system','custom'].map(value=>({value,label:t('pane.group.'+value)})),onSelect:value=>change($,state,{group:value,page:0})}),
+      h.Select({key:'rule-group',value:state.group,options:['all','git','db','file','package','deploy','system','custom'].map(value=>({value,label:t('pane.group.'+value)})),onSelect:value=>filter({group:value})}),
       h.Text({dimColor:true,children:t('pane.count',{count:filtered.length,enabled:filtered.filter(rule=>rule.enabled).length})}),
     ]}),
-    ...visible.map(rule=>h.Box({key:'row:'+rule.id,flexDirection:'row',flexWrap:'wrap',gap:1,alignItems:'center',justifyContent:'space-between',children:[
-      h.Box({flexDirection:'column',flexGrow:1,flexShrink:1,children:[
+    ...visible.map(rule=>h.Box({key:'row:'+rule.id,flexDirection:'row',gap:1,alignItems:'center',children:[
+      h.Box({flexDirection:'column',flexGrow:1,flexShrink:1,minWidth:0,children:[
         h.Text({bold:true,children:ruleLabel(rule)}),
         h.Text({dimColor:true,children:`${t(rule.source==='user'?'pane.group.custom':'pane.group.'+groupOf(rule))} · ${t('effect.'+rule.effect)}`}),
       ]}),
-      ...(rule.source==='builtin'?[
-        h.Button({key:'toggle:'+rule.id,label:t(rule.enabled?'pane.toggle.on':'pane.toggle.off'),onPress:()=>mutate($,ctx,latest=>toggleBuiltin(latest,rule.id))}),
+      h.Box({flexDirection:'row',gap:1,flexShrink:0,children:rule.source==='builtin'?[
+        iconButton(h,'toggle:'+rule.id,t(rule.enabled?'pane.toggle.on':'pane.toggle.off'),rule.enabled?'✓':'○',()=>mutate($,ctx,latest=>toggleBuiltin(latest,rule.id))),
       ]:[
-        h.Button({key:'edit:'+rule.id,label:t('pane.edit'),onPress:()=>change($,state,{editor:editorFor(rule),message:''})}),
-        h.Button({key:'delete:'+rule.id,label:t('pane.remove'),onPress:()=>change($,state,{confirm:{type:'delete',rule:{...rule}},message:''})}),
-      ]),
+        iconButton(h,'edit:'+rule.id,t('pane.edit'),'✎',()=>change($,state,{editor:editorFor(rule),message:''})),
+        iconButton(h,'delete:'+rule.id,t('pane.remove'),'🗑︎',()=>change($,state,{confirm:{type:'delete',rule:{...rule}},message:''})),
+      ]}),
     ]})),
     ...(visible.length?[]:[h.Text({dimColor:true,children:t('pane.empty')})]),
-    h.Box({flexDirection:'row',gap:1,justifyContent:'space-between',children:[
-      h.Text({dimColor:true,children:t('pane.range',{from:filtered.length?page*PAGE_SIZE+1:0,to:Math.min(filtered.length,(page+1)*PAGE_SIZE),count:filtered.length})}),
-      ...(page>0?[h.Button({key:'page-previous',label:t('pane.previous'),onPress:()=>change($,state,{page:page-1})})]:[]),
-      ...((page+1)*PAGE_SIZE<filtered.length?[h.Button({key:'page-next',label:t('pane.next'),onPress:()=>change($,state,{page:page+1})})]:[]),
-    ]}),
+    ...controls,
   ]});
 }
 // The ledger-backed views refresh on entry, an explicit refresh or a successful
@@ -163,14 +167,18 @@ async function dataset($,ctx,state,settings){
   return state.data;
 }
 function paged($,h,state,id,rows,size=PAGE_SIZE){
-  const PAGE_SIZE=size;
-  const page=Math.max(0,Math.min(state.pages[id] || 0,Math.ceil(rows.length/PAGE_SIZE)-1));
-  const controls=h.Box({flexDirection:'row',gap:1,children:[
-    h.Text({dimColor:true,children:t('pane.range',{from:rows.length?page*PAGE_SIZE+1:0,to:Math.min(rows.length,(page+1)*PAGE_SIZE),count:rows.length})}),
-    ...(page>0?[h.Button({key:id+'-previous',label:t('pane.previous'),onPress:()=>{state.pages[id]=page-1;redraw($);}})]:[]),
-    ...((page+1)*PAGE_SIZE<rows.length?[h.Button({key:id+'-next',label:t('pane.next'),onPress:()=>{state.pages[id]=page+1;redraw($);}})]:[]),
+  const last=Math.ceil(rows.length/size)-1;
+  const page=Math.max(0,Math.min(state.pages[id] || 0,last));
+  const start=page*size,end=Math.min(rows.length,start+size);
+  const step=(name,icon,target)=>h.Box({width:4,alignItems:'center',children:target<0 || target>last?[]:[
+    iconButton(h,id+'-'+name,t('pane.'+name),icon,()=>{state.pages[id]=target;redraw($);}),
   ]});
-  return {visible:rows.slice(page*PAGE_SIZE,(page+1)*PAGE_SIZE),controls};
+  const controls=last>0?[h.Box({key:'pager-'+id,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:1,children:[
+    step('previous','‹',page-1),
+    h.Text({dimColor:true,tabular:true,children:t('pane.range',{from:start+1,to:end,count:rows.length})}),
+    step('next','›',page+1),
+  ]})]:[];
+  return {visible:rows.slice(start,end),controls};
 }
 const uiSource=()=>({kind:'ui',origin:'ui',id:crypto.randomUUID()});
 function askConfirmation($,state,type,extra={}){change($,state,{confirm:{type,...extra},message:''});}
@@ -184,7 +192,7 @@ async function violationsView($,h,ctx,state,settings){
   if(detail){
     const record=records.find(record=>record.id===detail.id);
     return h.Box({flexDirection:'column',gap:1,children:[
-      h.Button({key:'back-violations',label:t('pane.back'),plain:true,onPress:()=>change($,state,{detail:null})}),
+      iconButton(h,'back-violations',t('pane.back'),'←',()=>change($,state,{detail:null})),
       h.Text({bold:true,children:record.who}),
       h.Text({children:`${t('sanction.'+record.sanction)} · -${record.points} · ${t('status.'+record.status)}`}),
       h.Text({children:record.ruleIds.map(id=>id.startsWith('user:')?id:t('rule.'+id)).join(', ')}),
@@ -212,7 +220,7 @@ async function violationsView($,h,ctx,state,settings){
         ...(record.status==='active'?[h.Button({key:'release:'+record.id,label:t('pane.release',{who:record.who}),onPress:()=>askConfirmation($,state,'release',{id:record.id,reason:''})})]:[]),
       ]}),
     ]})):[h.Text({dimColor:true,children:t('pane.docketNone')})]),
-    controls,
+    ...controls,
   ]});
 }
 // An answer is recorded without hiding the panel or reading everything again:
@@ -244,23 +252,30 @@ async function decide($,ctx,kind,ref,decision,extra={}){
 async function autoReview($,ctx,state,settings){
   if(state.autoRun)return;
   const items=(state.data?.reviews ?? []).flatMap(review=>review.findings.filter(finding=>finding.state==='open').map(finding=>({review,finding})));
-  const model=settings.judgeModel ?? 'haiku',run={done:0,total:items.length,confirmed:0,dismissed:0,unsure:0};
-  state.autoRun=run;redraw($);
+  const model=settings.judgeModel ?? JUDGE_MODEL,run={done:0,total:items.length,confirmed:0,dismissed:0,unsure:0,failed:0};
+  state.autoRun=run;state.message='';redraw($);
   try{
     for(const {review,finding} of items){
-      let verdict=null;try{verdict=await checkFinding($,ctx,review,finding,model);}catch{ /* Left for the person. */ }
-      if(verdict && verdict.decision!=='unsure' && await decide($,ctx,'finding',finding.ref,verdict.decision,{auto:true,model}))run[verdict.decision]+=1;
-      else{run.unsure+=1;state.autoNotes.set(finding.ref,verdict?.why || t('pane.autoUnsure'));}
+      let verdict=null;
+      try{verdict=await checkFinding($,ctx,review,finding,model);}catch{ /* The finding stays open. */ }
+      if(!verdict){run.failed+=1;state.autoNotes.set(finding.ref,t('pane.autoModelFailed'));}
+      else if(verdict.decision==='unsure'){run.unsure+=1;state.autoNotes.set(finding.ref,verdict.why || t('pane.autoUnsure'));}
+      else if(await decide($,ctx,'finding',finding.ref,verdict.decision,{auto:true,model})){
+        run[verdict.decision]+=1;state.autoNotes.delete(finding.ref);
+      }else{run.failed+=1;state.autoNotes.set(finding.ref,state.message);}
       run.done+=1;redraw($);
     }
-  }finally{state.autoRun=null;state.message=t('pane.autoDone',run);redraw($);}
+  }finally{
+    state.autoRun=null;state.message=t('pane.autoDone',run)+(run.failed?' '+t('pane.autoFailed',run):'');redraw($);
+  }
 }
 async function translatePage($,state,reviews){
   if(state.translating)return;
+  const language=currentLanguage();
   state.translating=true;redraw($);
   try{
     const texts=reviews.flatMap(review=>[...review.findings.flatMap(finding=>[finding.claim,finding.evidence]),review.exemplar.why]);
-    const added=await translateTexts($,texts,currentLanguage());
+    const added=await translateTexts($,texts,language);
     state.message=added?t('pane.translated',{count:added}):t('pane.translateNone');
   }catch(error){state.message=errorText(error);}
   finally{state.translating=false;redraw($);}
@@ -315,7 +330,7 @@ async function scoresView($,h,ctx,state,settings,data){
         h.Text({dimColor:true,children:scoreUsage(row)}),
         ...(role?[roleSelect($,h,ctx,row.name,settings)]:[]),
       ]});
-    }):[h.Text({dimColor:true,children:t('pane.scoresNone')})]),controls,
+    }):[h.Text({dimColor:true,children:t('pane.scoresNone')})]),...controls,
     ...(state.scoreScope==='project' && state.scoreKind==='all'?Object.keys(settings.roles).filter(name=>!data.rows.some(row=>row.name===name)).map(name=>h.Box({flexDirection:'column',children:[h.Text({children:name}),roleSelect($,h,ctx,name,settings)]})):[]),
   ]});
 }
@@ -336,7 +351,7 @@ function lessonsView($,h,ctx,state,settings,data){
         ...(library?[h.Button({key:'unshare:'+lesson.id,label:t('settings.unshare'),onPress:()=>askConfirmation($,state,'unshare',{lesson})})]:
           shared?[h.Text({dimColor:true,children:t('pane.sharedAlready')})]:[h.Button({key:'share:'+lesson.id,label:t('pane.share'),onPress:()=>askConfirmation($,state,'share',{lesson})})]),
       ]});
-    }):[h.Text({dimColor:true,children:t(library?'cmd.libraryNone':'pane.lessonsNone')})]),controls,
+    }):[h.Text({dimColor:true,children:t(library?'cmd.libraryNone':'pane.lessonsNone')})]),...controls,
   ]});
 }
 function reviewsView($,h,ctx,state,settings,data){
@@ -348,9 +363,10 @@ function reviewsView($,h,ctx,state,settings,data){
   const waitingCount=data.reviews.reduce((sum,review)=>sum+review.findings.filter(finding=>finding.state==='open').length,0);
   const answer=(key,label,ref,run)=>h.Button({key,label:state.busy.has(ref)?t('settings.working'):label,onPress:()=>state.busy.has(ref) || state.autoRun?undefined:run()});
   const {visible,controls}=paged($,h,state,'reviews',rows),usage=judgeUsage(data.events,ctx.projectId);
+  const canTranslate=currentLanguage()!=='en' && visible.length>0;
   const detail=state.detail?.kind==='review'?data.reviews.find(review=>review.id===state.detail.id):null;
   if(detail)return h.Box({flexDirection:'column',gap:1,children:[
-    h.Button({key:'back-reviews',label:t('pane.back'),plain:true,onPress:()=>change($,state,{detail:null})}),
+    iconButton(h,'back-reviews',t('pane.back'),'←',()=>change($,state,{detail:null})),
     h.Text({bold:true,children:`${t('settings.details')} · ${detail.citizen?.kind==='main'?t('pane.agentKind.main'):detail.citizen?.name || 'agent'}`}),
     h.Text({dimColor:true,children:`${localTime(detail.at)} · ${detail.ref}`}),
     ...Object.entries(detail.scores).map(([dimension,score])=>h.Text({children:`${t('dimension.'+dimension)}: ${score===null?t('tbl.undetermined'):t('score.outOf5',{value:score})}`})),
@@ -373,9 +389,10 @@ function reviewsView($,h,ctx,state,settings,data){
     h.Text({children:t('tbl.judgeHead',{state:t(settings.judge?'cmd.on':'cmd.off'),model:settings.judgeModel ?? JUDGE_MODEL,today:usage.today,cap:DAILY_TRIALS,trials:usage.trials,input:usage.inputTokens,output:usage.outputTokens})}),
     h.Text({dimColor:true,children:t('pane.reviewsHint')}),
     ...(noted?[h.Text({dimColor:true,children:t('pane.autoNoted',{count:noted})})]:[]),
-    ...(state.autoRun?[h.Text({children:t('pane.autoRunning',state.autoRun)})]:waitingCount||currentLanguage()!=='en'?[h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',children:[
-      ...(waitingCount?[h.Button({key:'auto-review',label:t('pane.auto',{count:waitingCount}),onPress:()=>autoReview($,ctx,state,settings)})]:[]),
-      ...(currentLanguage()!=='en'?[h.Button({key:'translate-reviews',label:t(state.translating?'pane.translating':'pane.translate'),onPress:()=>translatePage($,state,visible)})]:[]),
+    ...(state.autoRun?[h.Text({children:t('pane.autoRunning',state.autoRun)})]:waitingCount||canTranslate?[h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',children:[
+      ...(waitingCount?[h.Button({key:'auto-review',label:t('pane.auto',{count:waitingCount}),onPress:()=>{void autoReview($,ctx,state,settings);}})]:[]),
+      ...(canTranslate?[h.Button({key:'translate-reviews',label:t(state.translating?'pane.translating':'pane.translate'),
+        children:['文 '+t(state.translating?'pane.translating':'pane.translateAction')],onPress:()=>{void translatePage($,state,visible);}})]:[]),
     ]})]:[]),
     ...(waitingCount && !state.autoRun?[h.Text({dimColor:true,children:t('pane.autoHint',{model:settings.judgeModel ?? JUDGE_MODEL})})]:[]),
     h.Select({key:'review-filter',label:t('settings.filter'),value:state.reviewFilter,options:['pending','suggested','completed','all'].map(value=>({value,label:t('settings.'+value)})),onSelect:value=>{state.pages.reviews=0;change($,state,{reviewFilter:value,detail:null});}}),
@@ -406,7 +423,7 @@ function reviewsView($,h,ctx,state,settings,data){
         ]}),
       ]})]:[]),
       h.Button({key:'review:'+review.id,label:t('settings.details'),plain:true,onPress:()=>change($,state,{detail:{kind:'review',id:review.id}})}),
-    ]})):[h.Text({dimColor:true,children:t('settings.noReviews')})]),controls,
+    ]})):[h.Text({dimColor:true,children:t('settings.noReviews')})]),...controls,
   ]});
 }
 // The sessions of this project and, for the one chosen, the thread of its main
@@ -422,7 +439,7 @@ function historyView($,h,ctx,state,data){
     onSelect:value=>{state.pages.history=0;change($,state,{historySession:value,detail:null});}});
   const agent=state.detail?.kind==='run'?timeline?.agents.find(run=>run.agentId===state.detail.id):null;
   if(agent)return h.Box({flexDirection:'column',gap:1,children:[
-    h.Button({key:'back-history',label:t('pane.back'),plain:true,onPress:()=>change($,state,{detail:null})}),
+    iconButton(h,'back-history',t('pane.back'),'←',()=>change($,state,{detail:null})),
     timelineRow(h,state.surface,agent,{lanes:1,first:true,last:true,size:32}),
     h.Text({dimColor:true,children:`${localTime(agent.startedAt)}${agent.endedAt?' → '+localTime(agent.endedAt).slice(11):''} · ${agent.agentId}`}),
     h.Text({children:agent.tools.length?t('history.tools',{tools:agent.tools.map(item=>`${item.tool} ${item.count}`).join(' · ')}):t('history.noTools')}),
@@ -439,7 +456,7 @@ function historyView($,h,ctx,state,data){
       ...visible.map((run,index)=>timelineRow(h,state.surface,run,{lanes:timeline.lanes,last:index===visible.length-1,
         onPress:()=>change($,state,{detail:{kind:'run',id:run.agentId}})})),
     ]}),
-    ...(runs.length?[controls]:[h.Text({dimColor:true,children:t('history.none')})]),
+    ...(runs.length?controls:[h.Text({dimColor:true,children:t('history.none')})]),
   ]});
 }
 async function citizensView($,h,ctx,state,settings){
@@ -447,7 +464,7 @@ async function citizensView($,h,ctx,state,settings){
   const body=state.agentSection==='lessons'?lessonsView($,h,ctx,state,settings,data):state.agentSection==='reviews'?reviewsView($,h,ctx,state,settings,data):
     state.agentSection==='history'?historyView($,h,ctx,state,data):await scoresView($,h,ctx,state,settings,data);
   return h.Box({flexDirection:'column',gap:1,children:[
-    h.Select({key:'agent-section',label:t('settings.agentSection'),value:state.agentSection,options:['history','scores','lessons','reviews'].map(value=>({value,label:t('settings.section.'+value)})),onSelect:value=>change($,state,{agentSection:value,detail:null,data:null})}),body,
+    h.Select({key:'agent-section',label:t('settings.agentSection'),value:state.agentSection,options:Object.entries(SECTION_ICONS).map(([value,icon])=>({value,label:icon+' '+t('settings.section.'+value)})),onSelect:value=>change($,state,{agentSection:value,detail:null,data:null})}),body,
   ]});
 }
 async function settingsView($,h,ctx,state,settings,failures){
@@ -548,10 +565,14 @@ export function registerRulesPane(on,failures=()=>0){
       h.Box({flexDirection:'row',flexWrap:'wrap',gap:1,justifyContent:'space-between',children:[h.Text({bold:true,children:t('settings.title')}),h.Text({dimColor:true,children:!masterIsEnabled()?t('settings.disabledGlobally'):settings?t('pane.modeLabel.'+settings.mode):t('pane.unavailable')})]}),
       h.Text({dimColor:true,children:t('pane.scope',{name:ctx.projectRoot.split('/').filter(Boolean).at(-1) || '/'})}),
       ...(settings && !state.pending && !state.confirm && !state.editor?[overviewView($,h,ctx,state,settings,e.surface)].filter(Boolean):[]),
-      ...(!state.pending?[h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',children:['settings','rules','violations','citizens'].map(tab=>h.Button({key:'tab-'+tab,label:t('pane.tab.'+tab),...(state.tab===tab?{variant:'primary'}:{}),onPress:()=>change($,state,{tab,editor:null,confirm:null,detail:null,data:null,message:''})}))})]:[]),
+      ...(!state.pending?[h.Box({key:'pane-menu',flexDirection:'row',gap:1,flexWrap:'wrap',children:Object.entries(MENU_ICONS).map(([tab,icon])=>{
+        const label=t('pane.tab.'+tab);
+        return h.Button({key:'tab-'+tab,label,children:[icon+' '+label],...(state.tab===tab?{variant:'primary'}:{}),
+          onPress:()=>change($,state,{tab,editor:null,confirm:null,detail:null,data:null,message:''})});
+      })})]:[]),
       body,
       h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',justifyContent:'space-between',children:[h.Text({dimColor:!state.message,children:state.message || t('pane.noPending')}),
-        ...(!state.pending?[h.Button({key:'refresh-rules',label:t('pane.refresh'),plain:true,onPress:()=>{void refreshStatus($,ctx);change($,state,{data:null,diagnostics:null});}})]:[])]}),
+        ...(!state.pending?[iconButton(h,'refresh-rules',t('pane.refresh'),'↻',()=>{void refreshStatus($,ctx);change($,state,{data:null,diagnostics:null});})]:[])]}),
     ]});
   });
 }

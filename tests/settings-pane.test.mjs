@@ -184,11 +184,40 @@ test('review pagination and a stale finding decision never overwrite a decision 
  const p=await pane(t,'citizens');let id;
  for(let n=0;n<8;n++)id=await emit(p.$,p.ctx,'coder','judge.review','r'+n,{scores:{honesty:3},findings:[{severity:'medium',dimension:'honesty',claim:'Claim '+n,evidence:'Evidence '+n}],exemplar:{worthy:false}});
  await p.select('agent-section','reviews');assert.ok(p.find('reviews-next'));await p.press('reviews-next');assert.match(p.text(),/7–8 \/ 8/);
+ assert.equal(p.find('reviews-previous').props.children[0],'‹');
+ assert.equal(p.find('pager-reviews').props.justifyContent,'center');
+ assert.equal(p.find('reviews-next'),undefined);
  await p.press('reviews-previous');await p.press('review:'+id);const button=p.first('confirm:');assert.ok(button);
  const event=(await readProject(p.$,p.ctx)).events.find(e=>e.id===id);
  await emit(p.$,p.ctx,null,'judge.decision','elsewhere',{reviewId:event.id,finding:0,decision:'dismissed',source:{origin:'composer'}});
  await p.press(button);assert.match(p.text(),/no longer anything|nothing to decide/i);
  assert.equal((await readProject(p.$,p.ctx)).events.filter(e=>e.kind==='judge.decision').length,1);
+});
+
+test('Vietnamese reviews translate the current page without changing the source finding',async t=>{
+ const p=await pane(t,'citizens');
+ await emit(p.$,p.ctx,'agent','judge.review','translation-fixture',{scores:{correctness:3},
+  findings:[{severity:'high',dimension:'correctness',claim:'Pagination skips a row.',evidence:'The review fixture proves the skipped row.'}],exemplar:{worthy:false}});
+ await p.select('agent-section','reviews');
+ assert.equal(p.find('translate-reviews'),undefined);
+ setLanguage('vi');
+ await p.draw();
+ const translation=p.find('translate-reviews');
+ assert.match(translation.props.children[0],/Dịch/);
+ p.$.model={complete:async({model,prompt})=>{
+  assert.equal(model,'haiku');
+  assert.deepEqual(JSON.parse(prompt),['Pagination skips a row.','The review fixture proves the skipped row.']);
+  return {isAnswered:true,text:'["Phân trang bỏ sót một dòng.","Bằng chứng cho thấy dòng bị bỏ sót."]'};
+ }};
+ assert.equal(translation.props.onPress(),undefined,'press acknowledges before the model returns');
+ for(let n=0;n<100;n++){
+  await p.draw();
+  if(p.text().includes('Đã dịch 2 câu.'))break;
+  await new Promise(resolve=>setTimeout(resolve,5));
+ }
+ assert.match(p.text(),/Phân trang bỏ sót một dòng/);
+ const [review]=(await readProject(p.$,p.ctx)).events.filter(e=>e.kind==='judge.review');
+ assert.equal(review.data.findings[0].claim,'Pagination skips a row.');
 });
 
 test('release-all does not silently include a new violation that arrived during confirmation',async t=>{
@@ -209,9 +238,33 @@ test('a finding is answered from the list without leaving it, and auto review re
  await p.press('dismiss:'+one.slice(0,12)+'-0');
  assert.ok(!p.find('back-reviews'),'still on the list');assert.match(p.text(),/Recorded/);
  const answers={'Null not handled':'confirmed','Maybe slow':'unsure'},asked=[];
- p.$.model={complete:async({prompt,model})=>{asked.push(model);const claim=/claim: (.*)/.exec(prompt)[1];return {isAnswered:true,text:JSON.stringify({decision:answers[claim],why:'checked'})};}};
+ let finishFirst, firstStarted;
+ const firstCall=new Promise(resolve=>{firstStarted=resolve;});
+ const waitForFirst=new Promise(resolve=>{finishFirst=resolve;});
+ p.$.model={complete:async({prompt,model})=>{
+  asked.push(model);
+  if(asked.length===1){firstStarted();await waitForFirst;}
+  const claim=/claim: (.*)/.exec(prompt)[1];return {isAnswered:true,text:JSON.stringify({decision:answers[claim],why:'checked'})};
+ }};
  await p.press('tab-settings');await p.select('judge-model','sonnet');assert.equal((await loadProjectSettings(p.$,p.ctx)).judgeModel,'sonnet');
- await p.press('tab-citizens');await p.select('agent-section','reviews');await p.press('auto-review');
+ await p.press('tab-citizens');await p.select('agent-section','reviews');
+ const button=p.find('auto-review').props.onPress;
+ const acknowledged=button();
+ try {
+  assert.equal(acknowledged,undefined,'press must return before waiting for the model');
+  await firstCall;
+  button();
+  assert.deepEqual(asked,['sonnet'],'a second press cannot start another batch');
+  await p.draw();
+  assert.match(p.text(),/Reviewing on its own 0\/2/);
+ } finally {
+  finishFirst();
+ }
+ for(let n=0;n<100;n++){
+  await p.draw();
+  if(p.text().includes('1 correct, 0 wrong, 1 left for you'))break;
+  await new Promise(resolve=>setTimeout(resolve,5));
+ }
  assert.deepEqual(asked,['sonnet','sonnet'],'the chosen judge model checks each waiting finding');
  const decisions=(await readProject(p.$,p.ctx)).events.filter(e=>e.kind==='judge.decision');
  const auto=decisions.find(e=>e.data.source.auto);
@@ -219,6 +272,17 @@ test('a finding is answered from the list without leaving it, and auto review re
  assert.equal(auto.data.source.origin,'ui');assert.equal(auto.data.source.model,'sonnet');
  assert.ok(p.find('confirm:'+three.slice(0,12)+'-0'),'what the model could not tell stays for the person');
  assert.match(p.text(),/1 correct, 0 wrong, 1 left for you/);
+ p.$.model.complete=async()=>({isAnswered:false});
+ await p.press('auto-review');
+ for(let n=0;n<100;n++){
+  await p.draw();
+  if(p.text().includes('could not be processed and are still waiting'))break;
+  await new Promise(resolve=>setTimeout(resolve,5));
+ }
+ assert.match(p.text(),/1 could not be processed and are still waiting/);
+ assert.match(p.text(),/The model did not return a usable answer/);
+ assert.ok(p.find('confirm:'+three.slice(0,12)+'-0'));
+ assert.equal((await readProject(p.$,p.ctx)).events.filter(e=>e.kind==='judge.decision').length,2);
 });
 
 test('session history shows the agents a session sent and opens one to what it did',async t=>{
