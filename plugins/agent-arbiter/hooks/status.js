@@ -2,7 +2,7 @@
 // The band above the prompt draws it; a toast says when something new arrives.
 import { disciplineState } from './discipline.js';
 import { readProject } from './events.js';
-import { reduceReviews, PENDING_DAYS } from './judge.js';
+import { reduceReviews, judgeUsage, PENDING_DAYS } from './judge.js';
 import { loadProjectSettings } from './project-rules.js';
 import { t } from './i18n.js';
 import {replay} from './ledger.js';
@@ -45,11 +45,16 @@ export async function refreshStatus($, ctx) {
   try {
     const settings = await loadProjectSettings($, ctx);
     const active = settings.mode !== 'off' && !courtDisabled();
-    const counts = active ? statusCounts(await disciplineState($, ctx, true), reduceReviews((await readProject($, ctx)).events, ctx.projectId))
-      : { detained: 0, pending: 0, decided: 0 };
+    let counts = { detained: 0, pending: 0, decided: 0, detainee: null, judgedToday: 0, violations: 0 };
+    if (active) {
+      const events = (await readProject($, ctx)).events, discipline = await disciplineState($, ctx, true);
+      counts = { ...statusCounts(discipline, reduceReviews(events, ctx.projectId)), judgedToday: judgeUsage(events, ctx.projectId).today,
+        violations: discipline.violations.filter(record => record.status === 'active').length };
+    }
     const previous = snapshots.get(keyOf(ctx)), now = Date.now();
     const detainedAt = previous && counts.detained > previous.detained ? now : previous?.detainedAt ?? 0;
-    snapshots.set(keyOf(ctx), { ...counts, detainedAt, hidden: previous?.hidden && counts.detained <= previous.detained && counts.pending <= previous.pending });
+    snapshots.set(keyOf(ctx), { ...counts, detainedAt, expanded: previous?.expanded ?? false,
+      hidden: previous?.hidden && counts.detained <= previous.detained && counts.pending <= previous.pending });
     if (previous) {
       try {
         if (counts.detained > previous.detained) $.ui.toast(t('toast.detained', { count: counts.detained }));
@@ -60,6 +65,13 @@ export async function refreshStatus($, ctx) {
     try { $.ui.invalidate('ui.render'); } catch { /* Redrawn at the next frame anyway. */ }
     return counts.detained || counts.pending ? t('statusline', counts) : null;
   } catch { return null; }
+}
+
+// The band's list of every bar, or only the one that matters most.
+export function setBandExpanded($, ctx, expanded) {
+  const snapshot = snapshots.get(keyOf(ctx));
+  if (snapshot) snapshots.set(keyOf(ctx), { ...snapshot, expanded });
+  try { $.ui.invalidate('ui.render'); } catch { /* Best effort. */ }
 }
 
 // The person closed the band: it stays closed until something new waits.

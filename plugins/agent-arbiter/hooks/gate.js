@@ -206,7 +206,7 @@ function sanctionMessage(record,rules){
 }
 async function violate($,ctx,event,decision,receipt,reason,requestId){
   const record=await recordViolation($,ctx,event,{ruleIds:receipt.ruleIds,reason,severe:decision.severe,detail:receipt.detail,requestId});
-  if(record.sanction==='detain')void refreshStatus($,ctx);
+  void refreshStatus($,ctx);
   return sanctionMessage(record,decision.rules);
 }
 async function enforceDefault($,ctx,event,state,requestId){

@@ -6,11 +6,11 @@ import { readProject } from './events.js';
 import {reduceScores,allProjectScoreRows,scoreUsage} from './scoring.js';
 import {projectLessons,shareLessons,unshareLessons,loadLibrary,lessonEffects,experimentResults} from './lessons.js';
 import {reduceReviews,decideFinding,decideExemplar,judgeUsage,JUDGE_MODEL,DAILY_TRIALS} from './judge.js';
-import {refreshStatus,diagnostics} from './status.js';
+import {refreshStatus,diagnostics,bandSnapshot} from './status.js';
 import {changeProjectMode,changeGlobalConfig,globalConfig,purgeData,resetRules} from './panel-actions.js';
 import {masterIsEnabled} from './control-state.js';
 import {ROLES,roleOf} from './roles.js';
-import {COLORS,levelRow,roleIcon} from './visuals.js';
+import {COLORS,levelRow,roleIcon,pillTrackSvg,svgOf} from './visuals.js';
 import {quarantineProject} from './events.js';
 import {pruneProject,RETENTION_DAYS} from './retention.js';
 
@@ -371,10 +371,52 @@ async function settingsView($,h,ctx,state,settings,failures){
 }
 // focus: what the band's Open came for. 'jail' shows the detained agents,
 // 'review' the decisions waiting; either way without a line in the chat.
-export async function openRulesPane($,ctx,tab='rules',focus=null){
-  const state=stateFor(ctx);state.tab=tab;state.data=null;state.diagnostics=null;state.confirm=null;state.detail=null;state.editor=null;
+// Moves the pane to what waits: the detained agents, or the decisions.
+function focusOn(state,focus){
   if(focus==='jail')Object.assign(state,{tab:'violations',violationFilter:'active',pages:{...state.pages,violations:0}});
   if(focus==='review')Object.assign(state,{tab:'citizens',agentSection:'reviews',reviewFilter:'pending',pages:{...state.pages,reviews:0}});
+}
+// The overview at the top of the pane, after the progress tracker people liked:
+// a state pill, a grid of figures under small capital labels, a chip for each
+// kind of thing that waits, and a line saying when nothing does.
+function overviewView($,h,ctx,state,settings,surface){
+  const snapshot=bandSnapshot(ctx);
+  if(!snapshot){void refreshStatus($,ctx);return null;}
+  const waiting=snapshot.pending+snapshot.detained,Svg=svgOf(h,surface);
+  const pillLabel=waiting?t('overview.waitingPill',{count:waiting}):t('overview.calmPill');
+  const pillColor=snapshot.detained?COLORS.jail:waiting?COLORS.review:COLORS.trust;
+  const pill=Svg?(()=>{const drawn=pillTrackSvg({label:pillLabel,color:pillColor});return Svg({source:drawn.source,alt:pillLabel,width:drawn.width,height:drawn.height});})()
+    :h.Text({bold:true,color:pillColor,children:pillLabel});
+  const cell=(key,label,value)=>h.Box({key:'overview-'+key,flexDirection:'column',width:20,children:[
+    h.Text({dimColor:true,size:'caption',maxLines:1,wrap:'truncate',children:label.toLocaleUpperCase()}),
+    h.Text({bold:true,tabular:true,children:String(value)}),
+  ]});
+  const chip=(key,label,focus)=>h.Button({key:'overview-'+key,label,onPress:()=>{focusOn(state,focus);change($,state,{data:null,detail:null,editor:null,confirm:null,message:''});}});
+  return h.Box({key:'overview',flexDirection:'column',gap:1,children:[
+    h.Box({flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:1,children:[
+      h.Box({flexDirection:'row',alignItems:'center',gap:1,children:[h.Text({color:pillColor,children:'●'}),h.Text({weight:'semibold',children:t('overview.state')})]}),pill]}),
+    h.Box({flexDirection:'row',flexWrap:'wrap',rowGap:1,columnGap:2,children:[
+      cell('waiting',t('overview.waiting'),waiting),
+      cell('decided',t('overview.decided'),snapshot.decided),
+      cell('detained',t('overview.detained'),snapshot.detained),
+      cell('judge',t('overview.judge'),`${snapshot.judgedToday ?? 0}/${DAILY_TRIALS}`),
+      cell('violations',t('overview.violations'),snapshot.violations ?? 0),
+      cell('mode',t('overview.mode'),t('pane.modeLabel.'+settings.mode)),
+    ]}),
+    ...(waiting?[h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',children:[
+      ...(snapshot.pending?[chip('reviews',t('overview.chipReviews',{count:snapshot.pending}),'review')]:[]),
+      ...(snapshot.detained?[chip('jail',t('overview.chipJail',{count:snapshot.detained}),'jail')]:[]),
+    ]})]:[]),
+    ...(waiting?[]:[h.Box({flexDirection:'column',children:[
+      h.Box({flexDirection:'row',gap:1,children:[h.Text({color:COLORS.trust,children:'✓'}),h.Text({bold:true,children:t('overview.calm')})]}),
+      h.Text({dimColor:true,children:t('overview.calmHint')}),
+    ]})]),
+  ]});
+}
+export async function openRulesPane($,ctx,tab='rules',focus=null){
+  const state=stateFor(ctx);state.tab=tab;state.data=null;state.diagnostics=null;state.confirm=null;state.detail=null;state.editor=null;
+  focusOn(state,focus);
+  void refreshStatus($,ctx);
   return $.ui.open({id:PANE,title:'Agent Arbiter',focus:true});
 }
 export function registerRulesPane(on,failures=()=>0){
@@ -393,10 +435,11 @@ export function registerRulesPane(on,failures=()=>0){
     return h.Box({flexDirection:'column',gap:1,children:[
       h.Box({flexDirection:'row',flexWrap:'wrap',gap:1,justifyContent:'space-between',children:[h.Text({bold:true,children:t('settings.title')}),h.Text({dimColor:true,children:!masterIsEnabled()?t('settings.disabledGlobally'):settings?t('pane.modeLabel.'+settings.mode):t('pane.unavailable')})]}),
       h.Text({dimColor:true,children:t('pane.scope',{name:ctx.projectRoot.split('/').filter(Boolean).at(-1) || '/'})}),
+      ...(settings && !state.pending && !state.confirm && !state.editor?[overviewView($,h,ctx,state,settings,e.surface)].filter(Boolean):[]),
       ...(!state.pending?[h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',children:['settings','rules','violations','citizens'].map(tab=>h.Button({key:'tab-'+tab,label:t('pane.tab.'+tab),...(state.tab===tab?{variant:'primary'}:{}),onPress:()=>change($,state,{tab,editor:null,confirm:null,detail:null,data:null,message:''})}))})]:[]),
       body,
       h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',justifyContent:'space-between',children:[h.Text({dimColor:!state.message,children:state.message || t('pane.noPending')}),
-        ...(!state.pending?[h.Button({key:'refresh-rules',label:t('pane.refresh'),plain:true,onPress:()=>change($,state,{data:null,diagnostics:null})})]:[])]}),
+        ...(!state.pending?[h.Button({key:'refresh-rules',label:t('pane.refresh'),plain:true,onPress:()=>{void refreshStatus($,ctx);change($,state,{data:null,diagnostics:null});}})]:[])]}),
     ]});
   });
 }

@@ -13,3 +13,14 @@ export function noteDecision(toolUseId, ruleIds, outcome) {
 
 export function decisionNote(toolUseId) { return notes.get(toolUseId) ?? null; }
 export function forgetNotes() { notes.clear(); }
+
+// This session's approval asks so far: how many, and how many were allowed.
+export function sessionAsks() {
+  let asked = 0, allowed = 0;
+  for (const note of notes.values()) {
+    if (!['approved', 'session-allow', 'refused', 'unanswered'].includes(note.outcome)) continue;
+    asked += 1;
+    if (note.outcome === 'approved' || note.outcome === 'session-allow') allowed += 1;
+  }
+  return { asked, allowed };
+}

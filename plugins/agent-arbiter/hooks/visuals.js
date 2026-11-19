@@ -41,6 +41,39 @@ export function barText(bar, cells) {
   return '█'.repeat(filled) + partial + '░'.repeat(count - filled - partial.length);
 }
 
+// The band's meter, after the progress tracker people liked: a soft rounded
+// track, pixels gathering up to the fill's end, and a solid pill there naming
+// what waits. With nothing done yet the pill opens the track. A count with no
+// known total (a detention) is the pill alone. Waiting holds still: no motion.
+const PILL_HEIGHT = 20;
+const escapeText = text => String(text).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]);
+// Close enough to the system font at 11.5px semibold to size the pill.
+export const textWidth = text => [...String(text)].reduce((sum, char) => sum + (/[0-9]/.test(char) ? 6.9 : char === ' ' ? 3.3 : /[A-ZĐ]/.test(char) ? 7.6 : 6.4), 0);
+export const pillWidth = label => Math.round(textWidth(label) + 22);
+
+export function pillTrackSvg({ label, color, value = 0, max = null, width = 240 }) {
+  const fill = paint(color), pill = pillWidth(label), mid = PILL_HEIGHT / 2;
+  const pillShape = x => `<rect x="${x}" width="${pill}" height="${PILL_HEIGHT}" rx="${mid}" fill="${fill}"/>` +
+    `<text x="${x + pill / 2}" y="${mid + 4}" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-size="11.5" font-weight="650" fill="#1B1B1B" style="font-variant-numeric: tabular-nums">${escapeText(label)}</text>`;
+  const svg = (w, body) => ({ width: w, height: PILL_HEIGHT, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${PILL_HEIGHT}" viewBox="0 0 ${w} ${PILL_HEIGHT}">${body}</svg>` });
+  if (!Number.isFinite(max) || max <= 0) return svg(pill, pillShape(0));
+  const track = Math.max(pill + 24, Math.round(width));
+  const start = Math.round(fraction({ value, max }) * (track - pill)), end = start + pill;
+  const parts = [`<rect width="${track}" height="${PILL_HEIGHT}" rx="${mid}" fill="#7F7F7F" fill-opacity="0.16"/>`];
+  for (let x = 6; x < start - 2; x += 3) {
+    for (let y = 4; y < PILL_HEIGHT - 4; y += 3) {
+      // A scattered, fixed pattern: the same picture every time, no diagonal stripes.
+      if ((((x * 73856093) ^ (y * 19349663)) >>> 0) % 7 < 3) parts.push(`<rect x="${x}" y="${y}" width="2" height="2" fill="${fill}" opacity="${(0.2 + 0.65 * x / Math.max(1, start)).toFixed(2)}"/>`);
+    }
+  }
+  for (let i = 1; i < 4; i++) {
+    const x = Math.round((i * track) / 4);
+    if (x > end + 6 && x < track - 6) parts.push(`<rect x="${x}" y="6" width="1.5" height="8" rx="0.75" fill="#8F9BB1" opacity="0.55"/>`);
+  }
+  parts.push(pillShape(start));
+  return svg(track, parts.join(''));
+}
+
 // A role's citizen: an animated sprite where SVG draws, its emoji elsewhere.
 export function roleIcon(h, surface, role, size, options = { animate: true }, alt = role) {
   const Svg = svgOf(h, surface);
