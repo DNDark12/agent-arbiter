@@ -142,7 +142,7 @@ export async function handleCourt($, e) {
     const ctx = await observationContext($,{recoverPreferences:command==='' || command==='rules',authentication:command==='runtime' || command==='mode' && (body.startsWith('hardened') || body.startsWith('enforce '))});
     const source = {kind:'command',origin:e.origin?.kind || 'unclassified',id:crypto.randomUUID()};
     if(command==='' || command==='rules'){
-      try{const opened=await openRulesPane($,ctx,command===''?'settings':'rules');return reply(opened.isPlaced?t('pane.opened'):t('pane.waiting',{reason:opened.reason || ''}));}
+      try{const opened=await openRulesPane($,ctx,command===''?'inbox':'rules');return reply(opened.isPlaced?t('pane.opened'):t('pane.waiting',{reason:opened.reason || ''}));}
       catch(error){return reply('Rules pane unavailable: '+String(error?.message || error).slice(0,400));}
     }
     if(command==='quarantine')return reply(await quarantineProject($,ctx));

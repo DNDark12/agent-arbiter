@@ -6,10 +6,12 @@ const pref=async()=>'/fixture-home/.claude/plugins/data/agent-arbiter/v1/project
 const mount=($:any,surface:string)=>$.ui.mount({plugin:'agent-arbiter',surface,component:'Pane',requestId:'arbiter-rules',props:{title:'Agent Arbiter',isFocused:true,bodyColumns:64,placement:'inline'}})
 
 for(const surface of ['terminal','desktop'] as const){
- test(`one settings pane opens from bare arbiter, changes project options and language on ${surface}`,async($,on)=>{
+ test(`the inbox opens from bare arbiter and Settings changes project options and language on ${surface}`,async($,on)=>{
   const w=world(on);on('ui.open',()=>({value:{isPlaced:true}}))
   expect((await $.command.run({command:'arbiter',args:''})).text).toContain('panel opened')
   const ui=await mount($,surface),path=await pref()
+  expect(await ui.find({key:'panel-inbox'})).toBeDefined()
+  await ui.press({key:'tab-settings'})
   expect(await ui.find({key:'court-mode'})).toBeDefined()
   expect(await ui.find({key:'global-language'})).toBeDefined()
   await ui.select({key:'court-mode',value:'off'})
@@ -57,6 +59,7 @@ test('native maintenance cancellation does not delete user data or run a privile
  const w=world(on);on('ui.open',()=>({value:{isPlaced:true}}))
  w.files.set(await pref(),JSON.stringify({mode:'off',judge:false}))
  await $.command.run({command:'arbiter',args:''});const ui=await mount($,'desktop')
+ await ui.press({key:'tab-settings'})
  await ui.press({key:'show-maintenance'});await ui.press({key:'purge-project'})
  await ui.press({key:'cancel-confirm'})
  expect(JSON.parse(w.files.get(await pref())!).mode).toBe('off')

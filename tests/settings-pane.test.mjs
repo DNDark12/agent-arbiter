@@ -33,14 +33,53 @@ async function pane(t,tab='settings'){
  const input=async(key,value)=>{assert.ok(find(key),`missing input ${key}`);await find(key).props.onInput(value);await draw();};
  const text=()=>nodes.filter(n=>n.type==='Text').map(n=>n.props.children).join('\n');
  await openRulesPane(w.$,ctx,tab);await draw();
- return {...w,ctx,configs,draw,find,first,press,select,input,text};
+ return {...w,ctx,configs,hooks,draw,find,first,press,select,input,text};
 }
 
-test('bare arbiter opens the settings pane; old rules shortcut still opens rules',async t=>{
+test('bare arbiter opens the inbox; old rules shortcut still opens rules',async t=>{
  const p=await pane(t);assert.ok(p.find('court-mode'));
  const answer=await p.command('');assert.match(answer?.text ?? '',/panel opened/i);
- await p.draw();assert.ok(p.find('court-mode'));
+ await p.draw();assert.ok(p.find('panel-inbox'));assert.equal(p.find('court-mode'),undefined);
  await p.command('rules');await p.draw();assert.ok(p.find('new-rule'));
+});
+
+test('the inbox scopes findings and detentions to this thread and honors decisions from other threads',async t=>{
+ const p=await pane(t,'inbox'),other={...p.ctx,sessionId:'other-thread'};
+ const findings=claim=>({scores:{honesty:2},findings:[{severity:'high',dimension:'honesty',claim,evidence:'fixture'}],exemplar:{worthy:false}});
+ const current=await emit(p.$,p.ctx,'local','judge.review','here',findings('Current finding'));
+ await emit(p.$,other,'remote','judge.review','there',findings('Other finding'));
+ await emit(p.$,other,null,'judge.decision','decision',{reviewId:current,finding:0,decision:'confirmed',source:{origin:'ui'}});
+ await recordViolation(p.$,other,{agentId:'remote',tool_use_id:'other-v'},{ruleIds:['git.push'],severe:true,reason:'fixture'});
+ await p.press('refresh-rules');
+ assert.match(p.text(),/Other finding/);assert.doesNotMatch(p.text(),/Current finding/);
+ assert.ok(p.first('inbox-detention:'));
+ await p.select('panel-scope','thread');
+ assert.doesNotMatch(p.text(),/Other finding|Current finding/);
+ assert.equal(p.first('inbox-detention:'),undefined);
+ assert.match(p.text(),/Nothing waits on you/);
+ await p.select('panel-scope','project');
+ assert.match(p.text(),/Other finding/);
+});
+
+test('pin is project-bound, reopens on Desktop and honors a manual close within the session',async t=>{
+ const p=await pane(t,'inbox');
+ let opens=0,paneRequested=Promise.withResolvers(),desktopAttached=Promise.withResolvers();
+ p.$.ui.open=async()=>{opens++;paneRequested.resolve();await desktopAttached.promise;return {isPlaced:true};};
+ const attach=p.hooks.find(([name])=>name==='session.attach').at(-1);
+ const close=p.hooks.find(([name])=>name==='ui.close').at(-1);
+ const connect=async()=>attach(p.$,{surface:'desktop'},async()=>({clientId:'desktop'}));
+ await connect();assert.equal(opens,0);
+ await p.press('pin-project');assert.equal((await loadProjectSettings(p.$,p.ctx)).panelPinned,true);
+ p.$.session.id=async()=> 'same-project-next-thread';
+ await connect();desktopAttached.resolve();
+ await paneRequested.promise;assert.equal(opens,1);
+ await close(p.$,{id:'arbiter-rules',origin:{kind:'person'}},async()=>undefined);
+ await connect();assert.equal(opens,1);
+ p.$.session.root=async()=>p.root+'/unrelated';p.$.session.id=async()=> 'different-project';
+ await connect();assert.equal(opens,1);
+ p.$.session.root=async()=>p.root;p.$.session.id=async()=>p.ctx.sessionId;
+ await p.draw();await p.press('pin-project');
+ assert.equal(Boolean((await loadProjectSettings(p.$,p.ctx)).panelPinned),false);
 });
 
 test('help directs normal users to the pane while preserving advanced command help',async t=>{
@@ -56,7 +95,7 @@ test('pane exposes global config, rejects locked/denied writes, and applies lang
  p.configs.get('agent-arbiter.enabled').isLocked=false;
  const set=p.$.config.set;p.$.config.set=async()=>({deny:'managed policy'});
  await p.press('global-enabled');assert.match(p.text(),/managed policy/);assert.equal(p.configs.get('agent-arbiter.enabled').value,true);
- p.$.config.set=set;await p.select('global-language','vi');assert.match(p.text(),/Bảng điều khiển|Chỉ ghi nhận/);
+ p.$.config.set=set;await p.select('global-language','vi');assert.match(p.text(),/Chỉ quan sát/);
  assert.equal((await loadProjectSettings(p.$,p.ctx)).mode,'observe');
 });
 
@@ -97,14 +136,37 @@ test('explicit recovery can reset an oversized corrupt preference file',async t=
  assert.equal((await loadProjectSettings(p.$,p.ctx)).mode,'enforce');assert.deepEqual((await loadProjectSettings(p.$,p.ctx)).rules,[]);
 });
 
-test('diagnostics are explicit refreshes, and purge cancellation changes neither ledger nor preferences',async t=>{
+test('refresh is beside status and only shows ledger health inside Data; purge cancellation preserves data',async t=>{
  const p=await pane(t);await emit(p.$,p.ctx,null,'session.start','s',{});
- await p.press('refresh-diagnostics');assert.match(p.text(),/Events: 1/);
+ assert.equal(p.find('refresh-diagnostics'),undefined);
+ assert.ok(p.find('panel-status').props.children.some(child=>child.props?.key==='refresh-rules'));
+ await p.press('refresh-rules');assert.doesNotMatch(p.text(),/Events:/);
+ await p.press('show-maintenance');await p.press('refresh-rules');assert.match(p.text(),/Events: 1/);
+ assert.doesNotMatch(p.text(),/Mode:/);
  let scans=0;const list=p.$.fs.list;p.$.fs.list=async path=>{if(path.includes('/events/'))scans++;return list(path);};
  await p.draw();await p.draw();assert.equal(scans,0);
- await p.press('show-maintenance');p.$.ui.ask=async()=> 'Cancel';await p.press('purge-project');await p.press('confirm-purge-project');
+ p.$.ui.ask=async()=> 'Cancel';await p.press('purge-project');await p.press('confirm-purge-project');
  assert.match(p.text(),/Nothing was deleted/);assert.equal((await readProject(p.$,p.ctx)).events.length,1);
  assert.equal((await loadProjectSettings(p.$,p.ctx)).mode,'observe');
+});
+
+test('saving a preference keeps settings mounted and skips a ledger scan',async t=>{
+ const p=await pane(t),original=p.$.fs.write;
+ await p.press('refresh-rules');
+ let scans=0;const list=p.$.fs.list;
+ p.$.fs.list=async path=>{if(path.includes('/events/'))scans++;return list(path);};
+ const entered=Promise.withResolvers(),resume=Promise.withResolvers();
+ p.$.fs.write=async(path,value)=>{
+  if(path.includes('/preferences.json.')){entered.resolve();await resume.promise;}
+  return original(path,value);
+ };
+ const save=p.find('toggle-judge').props.onPress();
+ await entered.promise;
+ try{
+  await p.draw();assert.ok(p.find('global-language'));assert.ok(p.find('toggle-lessons'));
+  assert.match(p.text(),/Saving/);assert.doesNotMatch(p.text(),/Events:/);
+ }finally{resume.resolve();await save;}
+ await p.draw();assert.equal((await loadProjectSettings(p.$,p.ctx)).judge,false);assert.equal(scans,0);
 });
 
 test('violations paginate, release has a reason, and release-all needs confirmation',async t=>{
@@ -236,6 +298,19 @@ test('release-all does not silently include a new violation that arrived during 
  await recordViolation(p.$,p.ctx,{agentId:'b',tool_use_id:'b'},{ruleIds:['git.push'],reason:'prohibited',detail:'second'});
  await p.press('confirm-release-all');assert.ok((await disciplineState(p.$,p.ctx,true)).violations.every(record=>record.status==='active'));
  assert.match(p.text(),/changed|refresh/i);
+});
+
+test('thread release-all leaves another thread’s active violation alone',async t=>{
+ const p=await pane(t,'violations'),other={...p.ctx,sessionId:'other-thread'};
+ await recordViolation(p.$,p.ctx,{agentId:'here',tool_use_id:'here'},{ruleIds:['git.push'],reason:'fixture'});
+ await recordViolation(p.$,other,{agentId:'there',tool_use_id:'there'},{ruleIds:['git.push'],reason:'fixture'});
+ await p.select('panel-scope','thread');
+ await p.press('release-all');
+ assert.match(p.text(),/in this thread/);
+ await p.press('confirm-release-all');
+ const records=(await disciplineState(p.$,p.ctx,true)).violations;
+ assert.equal(records.find(row=>row.sessionId===p.ctx.sessionId).status,'released');
+ assert.equal(records.find(row=>row.sessionId===other.sessionId).status,'active');
 });
 
 test('a finding is answered from the list without leaving it, and auto review records the model\'s answers as automatic',async t=>{

@@ -81,7 +81,8 @@ function validate(input) {
   if (!roles || typeof roles !== 'object' || Array.isArray(roles) || Object.keys(roles).length > MAX_RULES ||
       Object.entries(roles).some(([name, role]) => !/^[A-Za-z0-9:_. -]{1,128}$/.test(name) || !ROLES.includes(role))) throw new Error('Invalid agent role');
   return { mode, hardened, disabledRules: [...new Set(disabledRules)], enabledRules: [...new Set(enabledRules)], rules: validated,
-    lessons, judge, judgeModel, lessonExperiment, roles: Object.fromEntries(Object.entries(roles).sort(([left], [right]) => left < right ? -1 : 1)) };
+    lessons, judge, judgeModel, lessonExperiment, roles: Object.fromEntries(Object.entries(roles).sort(([left], [right]) => left < right ? -1 : 1)),
+    ...(input.panelPinned === true ? {panelPinned:true} : {}) };
 }
 
 export async function loadProjectSettings($, ctx) {

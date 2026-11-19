@@ -8,7 +8,7 @@ for(const surface of ['terminal','desktop'] as const){
  test(`compact pane offers builtin switches and custom CRUD on ${surface}`,async($,on)=>{
   const w=world(on);const path=await pref();on('ui.open',()=>({value:{isPlaced:true}}))
   const current=()=>JSON.parse(w.files.get(path) || '{"rules":[],"disabledRules":[]}')
-  expect((await $.command.run({command:'arbiter',args:'rules'})).text).toContain('Rules panel opened');const ui=await mount($,surface)
+  expect((await $.command.run({command:'arbiter',args:'rules'})).text).toContain('Arbiter panel opened');const ui=await mount($,surface)
   await ui.press({key:'tab-rules'})
   expect((await ui.find({key:'tab-rules'}))?.text).toContain('⚖')
   expect((await ui.find({key:'tab-rules'}))?.props.label).toContain('⚖')

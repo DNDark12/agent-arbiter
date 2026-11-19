@@ -4,7 +4,7 @@
 import { observationContext } from './context.js';
 import { t } from './i18n.js';
 import { roleOf } from './roles.js';
-import { openRulesPane } from './rules-pane.js';
+import { maybeOpenPinnedPane, openRulesPane } from './rules-pane.js';
 import { bandSnapshot, hideBand, refreshStatus, selectBandProgress, setBandExpanded, PULSE_MS } from './status.js';
 import { decisionNote, sessionAsks } from './notes.js';
 import { DAILY_TRIALS } from './judge.js';
@@ -18,11 +18,11 @@ async function contextOf($) {
   return lastContext;
 }
 
-// Opens the panel at what waits, or at its settings when nothing does.
+// The inbox collects the decisions waiting in the project.
 async function openAtWaiting($) {
   try {
-    const ctx = await contextOf($), snapshot = bandSnapshot(ctx);
-    await openRulesPane($, ctx, 'settings', snapshot?.detained ? 'jail' : snapshot?.pending ? 'review' : null);
+    const ctx = await contextOf($);
+    await openRulesPane($, ctx, 'inbox');
   } catch { /* The panel opens from /arbiter as well. */ }
 }
 
@@ -133,9 +133,10 @@ export function registerBand(on) {
   });
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const { bodyColumns, maxRows, hasSurvey } = e.props;
-    if (hasSurvey || maxRows < 1) return next(e);
     let ctx;
     try { ctx = await contextOf($); } catch { return next(e); }
+    if (e.surface === 'desktop') void maybeOpenPinnedPane($, ctx);
+    if (hasSurvey || maxRows < 1) return next(e);
     const snapshot = bandSnapshot(ctx);
     if (!snapshot) { void refreshStatus($, ctx); return next(e); }
     if (snapshot.hidden) return next(e);

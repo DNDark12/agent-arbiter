@@ -54,6 +54,8 @@ test('a new detention shows in the band once, flashes, and Open goes to it witho
   await band.unmount()
 
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await pane.find({ key: 'panel-inbox' })).toBeDefined()
+  await pane.press({ key: 'overview-jail' })
   expect((await pane.find({ key: 'violation-filter' }))?.props.value).toBe('active')
   await pane.unmount()
 
@@ -93,7 +95,7 @@ test('the right-click menu opens the panel in place', async ($, on) => {
   await menu.unmount()
 })
 
-test('the pane opens on an overview: a state pill, figures under small labels, and a chip for each kind that waits', async ($, on) => {
+test('the inbox stays compact when clear and opens a detained agent’s docket', async ($, on) => {
   const w = world(on)
   w.files.set(await preferences(), JSON.stringify({ rules: [{ id: 'user:secret', action: 'file.write', target: 'secrets/**', effect: 'jail' }] }))
   on('tool.call', () => ({ result: 'ran' }))
@@ -103,14 +105,14 @@ test('the pane opens on an overview: a state pill, figures under small labels, a
   for (let n = 0; n < 20; n++) await new Promise(resolve => setTimeout(resolve, 2))
   await pane.unmount()
   pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await pane.find({ type: 'Text', text: 'WAITING ON YOU' }))?.text).toBe('WAITING ON YOU')
+  expect(await pane.find({ key: 'panel-inbox' })).toBeDefined()
   expect((await pane.find({ type: 'Text', text: 'Nothing waits on you.' }))?.text).toBe('Nothing waits on you.')
   await pane.unmount()
 
   await $.tool.call({ tool: 'Write', agentId: 'j-child', tool_use_id: 'jw', file_path: '/fixture/secrets/key', content: 'x' })
   for (let n = 0; n < 40; n++) await new Promise(resolve => setTimeout(resolve, 2))
   pane = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await pane.findAll({ type: 'Svg' })).map(graphic => graphic.props.alt)).toContain('1 waiting on you')
+  expect((await pane.findAll({ type: 'Svg' })).map(graphic => graphic.props.alt)).toContain('Detained')
   expect(await pane.find({ type: 'Text', text: 'Nothing waits on you.' })).toBeUndefined()
   await pane.press({ key: 'overview-jail' })
   expect((await pane.find({ key: 'violation-filter' }))?.props.value).toBe('active')

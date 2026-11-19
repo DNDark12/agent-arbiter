@@ -46,14 +46,17 @@ Requires Claude Code 2.1.325 or later, on macOS or Linux.
 
 ## Usage
 
-Open **`/arbiter`**. Ordinary configuration and operations are available in one pane:
+Open **`/arbiter`** to see the Inbox.
 
 | Tab | What you can do |
 |---|---|
+| **Inbox** | Review findings and suggested exemplars, or open a detained agent’s docket |
 | **Settings** | Global enable/language, project mode, judge, lessons, comparison group, ledger status and maintenance |
 | **Rules** | Switch system rules on/off; create, edit and delete custom rules; search and filter |
 | **Violations** | Filter and inspect violations; release one or all with a reason and confirmation |
 | **Agents** | Project/all-project scores, project role overrides, lessons/shared library, and judge decisions |
+
+Use **This thread** or **This project** to filter activity. On Claude Desktop, **Pin project** opens Arbiter when a thread in that project connects. Closing the pane dismisses it for the current session.
 
 Global enable and language apply across projects on this computer. Mode, rules, judge, lessons and roles are saved per project. The pane shows when a global disable makes a project's rules inactive.
 
