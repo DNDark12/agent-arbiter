@@ -199,3 +199,36 @@ test('release-all does not silently include a new violation that arrived during 
  await p.press('confirm-release-all');assert.ok((await disciplineState(p.$,p.ctx,true)).violations.every(record=>record.status==='active'));
  assert.match(p.text(),/changed|refresh/i);
 });
+
+test('a finding is answered from the list without leaving it, and auto review records the model\'s answers as automatic',async t=>{
+ const p=await pane(t,'citizens');
+ const review=async(key,claim)=>emit(p.$,p.ctx,'coder1','judge.review',key,{citizen:{name:'coder',model:'model-a',definition:'d'.repeat(64)},role:'dev',difficulty:'easy',
+  scores:{completeness:3},findings:[{severity:'medium',dimension:'correctness',claim,evidence:'src/a.js'}],exemplar:{worthy:false},evidence:{files:['src/a.js']}});
+ const one=await review('r1','Off by one'),two=await review('r2','Null not handled'),three=await review('r3','Maybe slow');
+ await p.select('agent-section','reviews');
+ await p.press('dismiss:'+one.slice(0,12)+'-0');
+ assert.ok(!p.find('back-reviews'),'still on the list');assert.match(p.text(),/Recorded/);
+ const answers={'Null not handled':'confirmed','Maybe slow':'unsure'},asked=[];
+ p.$.model={complete:async({prompt,model})=>{asked.push(model);const claim=/claim: (.*)/.exec(prompt)[1];return {isAnswered:true,text:JSON.stringify({decision:answers[claim],why:'checked'})};}};
+ await p.press('tab-settings');await p.select('judge-model','sonnet');assert.equal((await loadProjectSettings(p.$,p.ctx)).judgeModel,'sonnet');
+ await p.press('tab-citizens');await p.select('agent-section','reviews');await p.press('auto-review');
+ assert.deepEqual(asked,['sonnet','sonnet'],'the chosen judge model checks each waiting finding');
+ const decisions=(await readProject(p.$,p.ctx)).events.filter(e=>e.kind==='judge.decision');
+ const auto=decisions.find(e=>e.data.source.auto);
+ assert.equal(decisions.length,2);assert.equal(auto.data.reviewId,two);assert.equal(auto.data.decision,'confirmed');
+ assert.equal(auto.data.source.origin,'ui');assert.equal(auto.data.source.model,'sonnet');
+ assert.ok(p.find('confirm:'+three.slice(0,12)+'-0'),'what the model could not tell stays for the person');
+ assert.match(p.text(),/1 correct, 0 wrong, 1 left for you/);
+});
+
+test('session history shows the agents a session sent and opens one to what it did',async t=>{
+ const p=await pane(t,'citizens');
+ await emit(p.$,p.ctx,null,'spawn.request','a1',{agentType:'court-coder',spawnAttemptId:'att1'});
+ await emit(p.$,p.ctx,null,'spawn.result','att1',{spawnAttemptId:'att1',childAgentId:'kid1',status:'started',citizen:{name:'court-coder',resolvedModel:'claude-sonnet-5-5'},profile:{runRole:'dev',difficulty:'easy'}});
+ await emit(p.$,p.ctx,'kid1','tool.request','call1',{tool:'Edit',toolCallId:'call1'});
+ await emit(p.$,p.ctx,'kid1','turn.complete','turn1',{durationMs:42000,isAborted:false,reason:'answer',model:'claude-sonnet-5-5'});
+ await p.select('agent-section','history');
+ assert.ok(p.find('run:main'));assert.match(p.text(),/court-coder/);assert.match(p.text(),/done · 42s · 1 call/);
+ await p.press('run:kid1');
+ assert.ok(p.find('back-history'));assert.match(p.text(),/Tools used: Edit 1/);assert.match(p.text(),/No violation/);
+});

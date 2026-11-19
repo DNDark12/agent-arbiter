@@ -34,12 +34,12 @@ test('a new detention shows in the band once, flashes, and Open goes to it witho
   const flashing = (await band.findAll({ type: 'Svg' })).filter(graphic => graphic.props.isInteractive)
   expect(flashing.map(graphic => graphic.props.alt)).toEqual(['1 agent(s) detained'])
   expect(String(flashing[0]?.props.source)).toMatch(/prefers-reduced-motion: no-preference/)
-  // The small band shows the one bar that matters most; ▾ lists every bar, ▴ folds it back.
-  expect(await band.find({ key: 'band-expand' })).toBeDefined()
-  await band.press({ key: 'band-expand' })
-  expect(await band.find({ key: 'band-collapse' })).toBeDefined()
-  await band.press({ key: 'band-collapse' })
-  expect(await band.find({ key: 'band-expand' })).toBeDefined()
+  // The small band shows the one bar that matters most; pressing the bar lists every bar, and again folds it back.
+  expect(await band.find({ key: 'band-expand' })).toBeUndefined()
+  await band.press({ key: 'band-toggle-jail' })
+  expect(await band.find({ key: 'band-toggle-jail' })).toBeDefined()
+  await band.press({ key: 'band-toggle-jail' })
+  expect(await band.find({ key: 'band-toggle-jail' })).toBeDefined()
   await band.press({ key: 'band-open' })
   await settle(() => opened.length > 0)
   expect(opened).toEqual(['arbiter-rules'])

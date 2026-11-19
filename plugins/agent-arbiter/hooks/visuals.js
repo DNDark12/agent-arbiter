@@ -42,33 +42,61 @@ export function barText(bar, cells) {
 }
 
 // The band's meter, after the progress tracker people liked: a soft rounded
-// track, pixels gathering up to the fill's end, and a solid pill there naming
-// what waits. With nothing done yet the pill opens the track. A count with no
-// known total (a detention) is the pill alone. Waiting holds still: no motion.
+// track, square dots that grow denser and brighter toward the fill's end, and a
+// solid pill there that names what waits (and the figure, when it fits). With
+// nothing done yet the pill opens the track. A count with no known total (a
+// detention) is the pill alone. A moving bar adds two glints over the dots, a
+// soft shine sweeping toward the pill and a few dots catching the light; both
+// sit in one group that a reduced-motion setting hides, so the still picture
+// is the same bar.
 const PILL_HEIGHT = 20;
+const DOT = 3, PITCH = 4, DOT_ROWS = 4, GLINT_GROUPS = 5;
 const escapeText = text => String(text).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]);
 // Close enough to the system font at 11.5px semibold to size the pill.
 export const textWidth = text => [...String(text)].reduce((sum, char) => sum + (/[0-9]/.test(char) ? 6.9 : char === ' ' ? 3.3 : /[A-ZĐ]/.test(char) ? 7.6 : 6.4), 0);
 export const pillWidth = label => Math.round(textWidth(label) + 22);
+// The same dots every time, from a hash of their place.
+const hash = n => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
 
-export function pillTrackSvg({ label, color, value = 0, max = null, width = 240 }) {
+export function pillTrackSvg({ label, color, value = 0, max = null, width = 240, moving = true }) {
   const fill = paint(color), pill = pillWidth(label), mid = PILL_HEIGHT / 2;
   const pillShape = x => `<rect x="${x}" width="${pill}" height="${PILL_HEIGHT}" rx="${mid}" fill="${fill}"/>` +
     `<text x="${x + pill / 2}" y="${mid + 4}" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-size="11.5" font-weight="650" fill="#1B1B1B" style="font-variant-numeric: tabular-nums">${escapeText(label)}</text>`;
   const svg = (w, body) => ({ width: w, height: PILL_HEIGHT, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${PILL_HEIGHT}" viewBox="0 0 ${w} ${PILL_HEIGHT}">${body}</svg>` });
   if (!Number.isFinite(max) || max <= 0) return svg(pill, pillShape(0));
   const track = Math.max(pill + 24, Math.round(width));
-  const start = Math.round(fraction({ value, max }) * (track - pill)), end = start + pill;
+  const free = track - pill, share = fraction({ value, max });
+  // One decided item must show: a started bar leaves the start by a visible step, a part-done one stops short of the end.
+  const start = share > 0 ? Math.min(share < 1 ? free - Math.min(10, free / 2) : free, Math.max(Math.min(10, free / 2), Math.round(share * free))) : 0, end = start + pill;
+  const top = (PILL_HEIGHT - (DOT_ROWS - 1) * PITCH - DOT) / 2;
   const parts = [`<rect width="${track}" height="${PILL_HEIGHT}" rx="${mid}" fill="#7F7F7F" fill-opacity="0.16"/>`];
-  for (let x = 6; x < start - 2; x += 3) {
-    for (let y = 4; y < PILL_HEIGHT - 4; y += 3) {
-      // A scattered, fixed pattern: the same picture every time, no diagonal stripes.
-      if ((((x * 73856093) ^ (y * 19349663)) >>> 0) % 7 < 3) parts.push(`<rect x="${x}" y="${y}" width="2" height="2" fill="${fill}" opacity="${(0.2 + 0.65 * x / Math.max(1, start)).toFixed(2)}"/>`);
+  const glints = Array.from({ length: GLINT_GROUPS }, () => []);
+  for (let x = PITCH; x < start - 2; x += PITCH) {
+    const ramp = Math.pow(x / Math.max(1, start), 1.6);
+    for (let row = 0; row < DOT_ROWS; row++) {
+      const seed = hash(x * 31 + row * 7);
+      if (seed > 0.3 + ramp * 0.7) continue;
+      const at = `x="${x}" y="${top + row * PITCH}" width="${DOT}" height="${DOT}" rx="0.4"`;
+      parts.push(`<rect ${at} fill="${fill}" opacity="${Math.min(1, (0.3 + ramp * 0.8) * (0.75 + 0.35 * hash(seed * 997))).toFixed(2)}"/>`);
+      if (hash(seed * 53) < 0.1 + ramp * 0.25) glints[Math.floor(hash(seed * 71) * GLINT_GROUPS)].push(`<rect ${at}/>`);
     }
   }
   for (let i = 1; i < 4; i++) {
     const x = Math.round((i * track) / 4);
     if (x > end + 6 && x < track - 6) parts.push(`<rect x="${x}" y="6" width="1.5" height="8" rx="0.75" fill="#8F9BB1" opacity="0.55"/>`);
+  }
+  if (moving && start > 12) {
+    const id = `f${track}-${start}-${fill.replace(/\W/g, '')}`, band = Math.max(40, Math.round(start * 0.25));
+    const glow = `<rect x="${-band}" width="${band}" height="${PILL_HEIGHT}" fill="url(#s${id})"><animate attributeName="x" from="${-band}" to="${start}" dur="1.1s" repeatCount="indefinite"/></rect>`;
+    const flashes = glints.map((group, i) => {
+      if (!group.length) return '';
+      const dur = (0.9 + (i / GLINT_GROUPS) * 1.3).toFixed(2), begin = (-hash(i * 89 + 3) * Number(dur)).toFixed(2);
+      return `<g fill="#FFFFFF" opacity="0"><animate attributeName="opacity" values="0;1;0;0" keyTimes="0;.06;.16;1" dur="${dur}s" begin="${begin}s" repeatCount="indefinite"/>${group.join('')}</g>`;
+    }).join('');
+    parts.push(`<style>@media (prefers-reduced-motion: reduce) { .mv { display: none } }</style>`,
+      `<defs><clipPath id="${id}"><rect width="${start + mid}" height="${PILL_HEIGHT}" rx="${mid}"/></clipPath>` +
+      `<linearGradient id="s${id}" x1="0" x2="1"><stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/><stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.25"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/></linearGradient></defs>`,
+      `<g class="mv" clip-path="url(#${id})">${glow}${flashes}</g>`);
   }
   parts.push(pillShape(start));
   return svg(track, parts.join(''));
@@ -106,4 +134,26 @@ export function levelRow(h, surface, metric, columns, tail) {
     ] }),
     ...(tail ? [tail] : []),
   ] });
+}
+
+// The timeline's colours by how a run ended.
+export const RUN_COLORS = Object.freeze({ running: '#9A86FF', done: '#39BFBB', stopped: '#F7B74E', unfinished: '#8F9BB1', detained: '#F76E72' });
+const LANE = 10, GUTTER_HEIGHT = 22, SHOWN_LANES = 4;
+
+// The left edge of one timeline row: the main thread as a line at the left, and
+// this run as a dot on its lane, joined to the thread when it ran beside others.
+// first/last: the thread starts or ends at this row. Lanes past the fourth share it.
+export function timelineGutterSvg({ lane = 0, lanes = 1, color, first = false, last = false, main = false }) {
+  const shown = Math.min(SHOWN_LANES, Math.max(1, lanes)), at = Math.min(lane, shown - 1);
+  const width = shown * LANE + 4, x0 = 6, x = x0 + at * LANE, mid = GUTTER_HEIGHT / 2, fill = paint(color);
+  const parts = [`<rect x="${x0 - 0.75}" y="${first ? mid : 0}" width="1.5" height="${first && last ? 0 : first || last ? mid : GUTTER_HEIGHT}" fill="#8F9BB1" opacity="0.55"/>`];
+  if (at > 0) parts.push(`<path d="M${x0} ${mid - 6} Q${x0} ${mid} ${x0 + 6} ${mid} L${x} ${mid}" stroke="${fill}" stroke-width="1.5" fill="none" opacity="0.8"/>`);
+  parts.push(main ? `<rect x="${x - 4}" y="${mid - 4}" width="8" height="8" rx="2" fill="${fill}"/>` : `<circle cx="${x}" cy="${mid}" r="3.5" fill="${fill}"/>`);
+  return { width, height: GUTTER_HEIGHT, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${GUTTER_HEIGHT}" viewBox="0 0 ${width} ${GUTTER_HEIGHT}">${parts.join('')}</svg>` };
+}
+
+// The same edge in a terminal: the thread, and a branch per lane past the first.
+export function timelineGutterText({ lane = 0, lanes = 1, last = false }) {
+  const shown = Math.min(SHOWN_LANES, Math.max(1, lanes)), at = Math.min(lane, shown - 1);
+  return (last && at === 0 ? '└' : '├') + '─'.repeat(1 + 2 * at) + ' ';
 }

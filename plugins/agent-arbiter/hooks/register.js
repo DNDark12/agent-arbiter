@@ -140,6 +140,7 @@ export const register = (on, options = {}) => {
           ...(spawnPolicy?.lessons?.length?{lessons:spawnPolicy.lessons}:{}),...(spawnPolicy?.lessonsHeldOut?{lessonsHeldOut:true}:{}),
           ...(typeof originalInput.prompt==='string' && !originalInput.resume?{profile:briefProfile(originalInput.prompt)}:{}) });}catch{await warn($);}
         if(result.agentId && !result.deny){
+          void refreshStatus($,ctx);
           rememberCitizen(ctx,result.agentId,identity);
           rememberBrief(ctx,result.agentId,originalInput,identity);
           rememberSpawn(ctx,result.agentId,{input:originalInput,identity,offer:offers.get(offerKey(e))});
@@ -253,6 +254,7 @@ export const register = (on, options = {}) => {
         transcript: await transcriptCoverage($, e.agentId), git: await gitSnapshot($, ctx.root) });
     } catch { await warn($); }
     // The judge reviews in the background: the turn is handed back without waiting.
+    if (ctx && e.agentId) void refreshStatus($, ctx);
     if (ctx) void judgeRun($, ctx, e).then(review => review ? refreshStatus($, ctx) : null);
     return next(e);
   });

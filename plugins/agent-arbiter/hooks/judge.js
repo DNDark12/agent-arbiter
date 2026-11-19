@@ -18,6 +18,7 @@ import { citizenSummary, disciplineState, runRecord } from './discipline.js';
 import { roleOf, effectiveRole, briefProfile } from './roles.js';
 import { mainCitizen } from './citizens.js';
 
+// The default; a project may choose another in its settings (judgeModel).
 export const JUDGE_MODEL = 'haiku';
 export const DAILY_TRIALS = 20;
 export const MAIN_DAILY_TRIALS = 10;
@@ -33,6 +34,15 @@ const MAX_FILES = 3, MAX_FILE_CHARS = 6000, MAX_TEXT = 4000, MAX_ACTIVITY = 80, 
 const EXEMPLAR_QUALITY = 90;
 // An undecided finding or exemplar candidate stops waiting after this long.
 export const PENDING_DAYS = 14;
+
+// A finding waits for a decision only when it could change what the person does:
+// every high one, and a medium one that is about correctness or security, or that
+// comes from work that was not easy. The rest (a medium note on process in an
+// easy task, any low one) is recorded as noted: no decision, no effect on scores.
+// The person can still confirm or dismiss it from the details.
+const WEIGHTY_DIMENSIONS = new Set(['correctness', 'security']);
+export const needsDecision = (finding, difficulty) => finding.severity === 'high' ||
+  (finding.severity === 'medium' && (difficulty !== 'easy' || WEIGHTY_DIMENSIONS.has(finding.dimension)));
 
 const briefs = new Map();
 const activity = new Map();
@@ -138,7 +148,9 @@ export function buildPrompt({ role, brief, answer, activityLines, files, violati
     '{"difficulty":"easy|medium|hard","scores":{"completeness":0,"honesty":0,"verification":0,"scope":0,"correctness":null,"performance":null,"security":null},' +
     '"findings":[{"severity":"low|medium|high","dimension":"one of the seven","claim":"what is wrong, one sentence","evidence":"where it shows"}],' +
     '"exemplar":{"worthy":false,"why":"the practice other agents should copy, one sentence, or empty"}}\n' +
-    'At most five findings; none is a valid answer.',
+    'At most five findings; none is a valid answer. Raise a finding only for a real defect that matters to the brief; leave out style, wording and remarks about a missing extra.\n' +
+    'Limits of this evidence, which are never defects of the agent: the brief, the report and each file are cut at a fixed length, so text that stops mid-sentence was cut here; ' +
+    'tool calls show only tool, target and outcome, never their output, and some arguments are redacted, so a claimed test result without visible output is not by itself dishonest.',
     ...(PLAINTIFF_ROLES.has(role) ? ['This agent\'s job was to find faults in existing work. Also list the concrete defects its report says it found in files, as ' +
       '"accusations":[{"file":"path relative to the project","severity":"low|medium|high","claim":"the defect, one sentence"}] inside the same JSON object. ' +
       'Only defects the report states and ties to a file; none is a valid answer.'] : [])].join('\n\n');
@@ -192,8 +204,8 @@ export function reduceReviews(events, projectId, now = Date.now()) {
   return list.filter(event => event.kind === 'judge.review' && event.data.scores && Array.isArray(event.data.findings)).map(event => {
     const waiting = now - event.occurredAt < PENDING_DAYS * DAY_MS;
     const findings = event.data.findings.map((finding, index) => ({ ...finding, index, ref: `${event.id.slice(0, 12)}-${index}`,
-      // Only findings worth a decision wait for one: a low one is noted, with no effect.
-      state: decisions.get(`${event.id}:${index}`) ?? (!waiting ? 'expired' : finding.severity === 'low' ? 'noted' : 'open') }));
+      // Only findings worth a decision wait for one; the rest are noted, with no effect.
+      state: decisions.get(`${event.id}:${index}`) ?? (!waiting ? 'expired' : needsDecision(finding, event.data.difficulty ?? 'medium') ? 'open' : 'noted') }));
     const disputed = findings.some(finding => finding.state === 'dismissed');
     const quality = qualityOf(event.data.scores);
     const worthy = event.data.exemplar?.worthy === true && !findings.some(finding => finding.state !== 'dismissed') &&
@@ -201,7 +213,7 @@ export function reduceReviews(events, projectId, now = Date.now()) {
     return { id: event.id, ref: event.id.slice(0, 12), at: event.occurredAt, sessionId: event.sessionId, agentId: event.agentId,
       citizen: event.data.citizen ?? null, turnId: event.data.turnId ?? null,
       role: event.data.role ?? 'other', difficulty: event.data.difficulty ?? 'medium',
-      plaintiff: event.data.plaintiff?.name ?? null,
+      plaintiff: event.data.plaintiff?.name ?? null, files: Array.isArray(event.data.evidence?.files) ? event.data.evidence.files : [],
       scores: event.data.scores, quality, disputed, findings,
       exemplar: { why: event.data.exemplar?.why ?? '', state: worthy ? (exemplars.get(event.id) ?? (waiting ? 'candidate' : 'expired')) : 'none' } };
   });
@@ -271,13 +283,14 @@ export async function judgeRun($, ctx, turn) {
         catch { /* Keep the independently recorded evidence. */ }
       }
       const activityLines = list.map((entry, index) => `${index + 1}. ${entry.tool} ${entry.target ?? ''} — ${entry.status}`);
-      const reply = await $.model.complete({ model: JUDGE_MODEL, system: SYSTEM, maxTokens: 1200, timeoutMs: 60000,
+      const model = settings.judgeModel ?? JUDGE_MODEL;
+      const reply = await $.model.complete({ model, system: SYSTEM, maxTokens: 1200, timeoutMs: 60000,
         prompt: buildPrompt({ role, brief: mask(brief.prompt), answer: mask(turn.answer), activityLines, files, violations }) });
       const verdict = reply?.isAnswered ? parseVerdict(reply.text) : null;
       if (!verdict) return null;
       const { accusations, ...review } = verdict;
       const id = await emit($, ctx, agentId, 'judge.review', trial, { ...review, difficulty: profile.difficulty, judgeDifficulty: review.difficulty,
-        citizen, turnId:turn.turnId ?? null, role, judgeModel: JUDGE_MODEL,
+        citizen, turnId:turn.turnId ?? null, role, judgeModel: model,
         evidence: { briefHash: await digest(brief.prompt), reportHash: await digest(turn.answer), files: files.map(file => file.path), toolCalls: list.length },
         usage: { input_tokens: reply.usage?.input_tokens ?? 0, output_tokens: reply.usage?.output_tokens ?? 0 } });
       if (agentId !== null && PLAINTIFF_ROLES.has(role)) await fileComplaints($, ctx, agentId, citizen, accusations, id, settings.roles);

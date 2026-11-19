@@ -57,8 +57,13 @@ test('the band bars: what waits first and decides whether it shows; activity joi
   assert.equal(bandRows({detained:0,pending:13,decided:0,detainedAt:0})[0].stat,'','nothing decided yet adds no figure');
   assert.equal(bandRows({detained:1,pending:0,decided:0,detainedAt:Date.now()-60000})[0].pulse,false,'an old detention is still');
   const full=drawRow(table(),'desktop',rows[1],90);
-  assert.deepEqual(texts(full),['6/9 đã xử lý'],'an icon and a meter, one dim figure, no names');
+  assert.deepEqual(texts(full),[],'an icon and a meter, no loose text and no names');
   assert.equal(find(full,'Svg').length,2);
+  const meter=find(full,'Svg')[1].props.source;
+  assert.ok(meter.includes('3 chờ duyệt · 6/9 đã xử lý'),'the figure rides inside the pill');
+  assert.match(meter,/<animate /,'a bar with a track glints');
+  assert.match(meter,/prefers-reduced-motion: reduce\) \{ \.mv \{ display: none/,'reduced motion hides the glints');
+  assert.doesNotMatch(find(drawRow(table(),'desktop',rows[0],90),'Svg')[1].props.source,/<animate /,'a pill alone stands still');
   assert.deepEqual(texts(drawRow(table(),'desktop',rows[1],90,undefined,true)),[],'the small band has no figure');
   const jail=drawRow(table(),'desktop',rows[0],90);
   assert.equal(find(jail,'Svg').filter(graphic=>graphic.props.isInteractive).length,1,'a fresh detention flashes');
@@ -105,11 +110,26 @@ test('in a terminal the pill sits at the fill end, between the done and the wait
   setLanguage('vi');
   const terminal=table(false),row=bandRows({detained:0,pending:3,decided:6,detainedAt:0})[0];
   const parts=texts(drawRow(terminal,'terminal',row,80));
-  const pill=parts.findIndex(text=>text.trim()==='3 chờ duyệt');
+  const pill=parts.findIndex(text=>text.trim().startsWith('3 chờ duyệt'));
   assert.ok(/^█+$/.test(parts[pill-1]),'done cells before the pill');
   assert.ok(/^░+$/.test(parts[pill+1]),'waiting cells after it');
+  const first=texts(drawRow(terminal,'terminal',bandRows({detained:0,pending:19,decided:1,detainedAt:0})[0],28,undefined,true));
+  assert.ok(first.some(text=>/█/.test(text)),'one decided item moves the pill, even on a short track');
   const none=texts(drawRow(terminal,'terminal',bandRows({detained:0,pending:13,decided:0,detainedAt:0})[0],80));
   const at=none.findIndex(text=>text.trim()==='13 chờ duyệt');
   assert.ok(at>0 && !none.slice(0,at).some(text=>/█/.test(text)),'with nothing done the pill opens the track');
   setLanguage('en');
+});
+
+test('the bar fills its row and pressing it opens or closes the band',()=>{
+  setLanguage('en');
+  const row=bandRows({detained:0,pending:3,decided:6,detainedAt:0})[0];
+  const narrow=find(drawRow(table(),'desktop',row,60,undefined,true),'Svg')[1].props.width;
+  const wide=find(drawRow(table(),'desktop',row,140,undefined,true),'Svg')[1].props.width;
+  assert.ok(wide>narrow+400,'a wider row gets a longer track, not a fixed stub');
+  let pressed=0;
+  const drawn=drawRow(table(),'desktop',row,100,undefined,true,()=>pressed++);
+  const [button]=find(drawn,'Button');
+  assert.ok(button && find(button,'Svg').length===2,'the icon and the meter are the button');
+  button.props.onPress();assert.equal(pressed,1);
 });

@@ -12,7 +12,7 @@
 import {resolvedModelId} from './citizens.js';
 import { t } from './i18n.js';
 import { canonical, digest } from './ledger.js';
-import { emit, readProject } from './events.js';
+import { emit, readProject, readProjectShared } from './events.js';
 
 export const FINE_POINTS = 10;
 export const DETAIN_POINTS = 30;
@@ -125,11 +125,11 @@ export async function actionKeys(actions) {
   return Promise.all(actions.map(action => digest(`${action.action}\u0000${action.target}`)));
 }
 
-export async function disciplineState($, ctx, fresh = false) {
+export async function disciplineState($, ctx, fresh = false, shared = false) {
   const cached = snapshots.get(ctx.projectId), now = Date.now();
   if (cached && !fresh && now - cached.at < SNAPSHOT_TTL_MS) return cached.state;
   let events = [];
-  try { events = (await readProject($, ctx)).events; } catch { /* Process memory still applies. */ }
+  try { events = (await (shared ? readProjectShared : readProject)($, ctx)).events; } catch { /* Process memory still applies. */ }
   const state = reduceDiscipline(events, ctx.projectId, now);
   for (const record of localViolations.get(ctx.projectId) ?? []) {
     if (!state.violations.some(known => known.id === record.id)) state.violations.push({ ...record });

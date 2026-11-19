@@ -430,6 +430,70 @@ Object.assign(TEXT.vi, {
  'update.done':'Đã cập nhật Agent Arbiter từ {from} lên {to}. Khởi động lại Claude Code để nạp bản mới.',
 });
 
+// Review answers, in plainer words; a later block wins over an earlier one.
+Object.assign(TEXT.en, {
+ 'settings.suggested':'Suggested as examples',
+ 'pane.reviewsHint':'Turns that already finished and were reviewed by the judge. Nothing here is running now; each item only waits for your answer.',
+ 'pane.autoNoted':'{count} minor finding(s) were noted on their own and need no answer.',
+ 'score.outOf5':'{value}/5',
+ 'severity.low':'Minor','severity.medium':'Medium','severity.high':'Serious',
+ 'pane.findingHint':'Correct: the finding becomes a lesson that later agents of the same type or role are told. Wrong: the whole review is withdrawn and its quality score stops counting. Minor findings are noted on their own and need no answer. A finding left unanswered expires after 14 days with no effect.',
+});
+Object.assign(TEXT.vi, {
+ 'settings.suggested':'Gợi ý làm ví dụ',
+ 'settings.pending':'Chờ bạn trả lời','settings.completed':'Đã xong / hết hạn',
+ 'pane.reviewsHint':'Các lượt đã chạy xong và được thẩm phán chấm. Ở đây không có agent nào đang chạy; mỗi mục chỉ chờ bạn trả lời.',
+ 'pane.autoNoted':'{count} lỗi nhỏ đã được tự ghi nhận, không cần bạn trả lời.',
+ 'score.outOf5':'{value}/5',
+ 'severity.low':'Nhỏ','severity.medium':'Vừa','severity.high':'Nghiêm trọng',
+ 'pane.confirmFinding':'Đúng, nhắc agent sau','pane.dismissFinding':'Sai, bỏ lượt chấm này',
+ 'pane.findingHint':'Đúng: lỗi này được nhắc cho các agent sau cùng loại hoặc vai trò để tránh lặp lại. Sai: cả lượt chấm bị bỏ và không tính vào điểm chất lượng. Lỗi nhỏ được tự ghi nhận, không cần trả lời. Lỗi bạn chưa trả lời tự hết hạn sau 14 ngày và không ảnh hưởng gì.',
+ 'pane.exemplarHint':'Dùng làm ví dụ: cách làm của lượt này được nhắc cho các agent sau cùng loại hoặc vai trò. Không dùng: không có gì thay đổi.',
+ 'pane.decideGone':'Mục này không còn chờ trả lời: nó đã đổi hoặc đã được xử lý.',
+ 'tbl.judgeHead':'Thẩm phán: {state} · model {model} · hôm nay {today}/{cap} lượt chấm · tổng {trials} lượt · đã dùng {input} token đầu vào, {output} token đầu ra',
+ 'settings.decision.noted':'đã tự ghi nhận, không cần trả lời',
+});
+
+// The judge model, automatic review and translation of the judge's sentences.
+Object.assign(TEXT.en, {
+ 'settings.judgeModel':'Judge model','settings.judgeModel.haiku':'Haiku: fastest, cheapest','settings.judgeModel.sonnet':'Sonnet: balanced','settings.judgeModel.opus':'Opus: most careful, most costly',
+ 'pane.auto':'Auto review {count}','pane.autoRunning':'Reviewing on its own {done}/{total}…',
+ 'pane.autoDone':'Auto review: {confirmed} correct, {dismissed} wrong, {unsure} left for you.','pane.autoUnsure':'The model could not tell.',
+ 'pane.autoHint':'Auto review asks the judge model ({model}) to check each waiting finding against the files of its turn, one call per finding, and records the answer as yours, marked automatic. What it cannot tell stays for you.',
+ 'pane.autoNote':'Auto review: {why}',
+ 'pane.translate':'Translate this page','pane.translating':'Translating…','pane.translated':'Translated {count} sentence(s).','pane.translateNone':'Nothing new to translate.',
+});
+Object.assign(TEXT.vi, {
+ 'settings.judgeModel':'Model chấm điểm','settings.judgeModel.haiku':'Haiku: nhanh và rẻ nhất','settings.judgeModel.sonnet':'Sonnet: cân bằng','settings.judgeModel.opus':'Opus: kỹ nhất, tốn nhất',
+ 'pane.auto':'Tự duyệt {count} mục','pane.autoRunning':'Đang tự duyệt {done}/{total}…',
+ 'pane.autoDone':'Tự duyệt xong: {confirmed} đúng, {dismissed} sai, {unsure} để bạn xem.','pane.autoUnsure':'Model không chắc.',
+ 'pane.autoHint':'Tự duyệt nhờ model chấm ({model}) đối chiếu từng lỗi đang chờ với các file của lượt đó, mỗi lỗi một lần gọi, rồi ghi câu trả lời thay bạn kèm dấu tự động. Lỗi nào model không chắc thì vẫn để bạn xem.',
+ 'pane.autoNote':'Tự duyệt: {why}',
+ 'pane.translate':'Dịch trang này sang tiếng Việt','pane.translating':'Đang dịch…','pane.translated':'Đã dịch {count} câu.','pane.translateNone':'Không có câu mới cần dịch.',
+});
+
+// Session history: the main agent's thread and the agents it sent.
+Object.assign(TEXT.en, {
+ 'settings.section.history':'Session history','history.session':'Session','history.thisSession':'This session',
+ 'history.sessionFigure':'{agents} agent(s) · {calls} call(s)','history.empty':'No session has been recorded yet.',
+ 'history.none':'This session has not sent any agent.','history.bandTitle':'Agents in this session · {count}',
+ 'history.more':'+{count} earlier · open the panel to see all',
+ 'history.status.running':'running','history.status.done':'done','history.status.stopped':'stopped','history.status.unfinished':'no end recorded','history.status.detained':'detained',
+ 'history.calls':'{count} call(s)','history.turns':'{count} turn(s)','history.violations':'{count} violation(s)','history.quality':'judged {value}/100',
+ 'history.tools':'Tools used: {tools}','history.noTools':'No tool call recorded.','history.files':'{count} file(s) touched',
+ 'history.clean':'No violation.','history.openReview':'Open its review',
+});
+Object.assign(TEXT.vi, {
+ 'settings.section.history':'Lịch sử phiên','history.session':'Phiên','history.thisSession':'Phiên này',
+ 'history.sessionFigure':'{agents} agent · {calls} lệnh','history.empty':'Chưa ghi nhận phiên nào.',
+ 'history.none':'Phiên này chưa giao agent nào.','history.bandTitle':'Agent trong phiên này · {count}',
+ 'history.more':'+{count} agent trước đó · mở bảng điều khiển để xem hết',
+ 'history.status.running':'đang chạy','history.status.done':'xong','history.status.stopped':'bị dừng','history.status.unfinished':'không rõ lúc kết thúc','history.status.detained':'bị giam',
+ 'history.calls':'{count} lệnh','history.turns':'{count} lượt','history.violations':'{count} vi phạm','history.quality':'chấm {value}/100',
+ 'history.tools':'Lệnh đã dùng: {tools}','history.noTools':'Không ghi nhận lệnh nào.','history.files':'Đụng tới {count} file',
+ 'history.clean':'Không vi phạm.','history.openReview':'Xem lượt chấm',
+});
+
 export function actionLabel(action){return action==='file.write' || action==='bash.command'?t('action.'+action):t('rule.'+action);}
 
 let language = 'en';

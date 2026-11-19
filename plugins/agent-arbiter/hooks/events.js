@@ -88,6 +88,7 @@ async function emitOne($, ctx, actor, kind, id, data) {
   const month = new Date(event.occurredAt).toISOString().slice(0, 7);
   const result = await publish($, `${ctx.dataRoot}/events/${ctx.projectId}/${month}`, event, ctx.signer);
   invalidateFinal(ctx, id);
+  scans.clear();
   if (result === 'conflict') {
     // Another process may have published identical metadata with an earlier time.
     const path = `${ctx.dataRoot}/events/${ctx.projectId}/${month}/${id}.json`;
@@ -153,6 +154,7 @@ async function isolateFinal($, ctx, month, issue) {
     result.quarantined = target;
     result.report = report;
     invalidateFinal(ctx, issue.name.slice(0, -5));
+    scans.clear();
   } catch (error) {
     result.quarantineError = error.message;
   }
@@ -185,6 +187,24 @@ async function scanProject($, ctx, cleanup, isolate) {
   }
   events.sort((a, b) => a.occurredAt - b.occurredAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return {events,invalid,parts,removed};
+}
+
+// The panel and the band ask for the same ledger several times in one breath
+// (status, scores, reviews, discipline). Those views share one scan for a few
+// seconds; a write from this process drops it at once, and nothing that
+// enforces a rule reads through it.
+const scans = new Map();
+const SCAN_SHARE_MS = 5000;
+export function readProjectShared($, ctx) {
+  const key = canonical([ctx.dataRoot, ctx.projectId, ctx.anchor || null, ctx.signer ? ctx.signer.keyId || null : 'unsigned', ctx.epoch || null]);
+  const hit = scans.get(key);
+  const read = hit && Date.now() - hit.at < SCAN_SHARE_MS ? hit.promise : (() => {
+    const promise = readProject($, ctx).catch(error => { if (scans.get(key)?.promise === promise) scans.delete(key); throw error; });
+    scans.set(key, { at: Date.now(), promise });
+    if (scans.size > 16) scans.delete(scans.keys().next().value);
+    return promise;
+  })();
+  return read.then(result => ({ ...result, events: [...result.events] }));
 }
 
 export async function readProject($, ctx, cleanup = false) {
@@ -239,4 +259,4 @@ export async function quarantineProject($, ctx) {
 }
 
 // After the person deletes Arbiter data, nothing cached may bring it back.
-export function forgetCaches() { payloads.clear(); inFlight.clear(); projectCaches.clear(); }
+export function forgetCaches() { payloads.clear(); inFlight.clear(); projectCaches.clear(); scans.clear(); }

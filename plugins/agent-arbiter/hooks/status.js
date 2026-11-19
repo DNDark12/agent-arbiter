@@ -1,22 +1,23 @@
 // What needs the person, per project: detained agents and review decisions.
 // The band above the prompt draws it; a toast says when something new arrives.
 import { disciplineState } from './discipline.js';
-import { readProject } from './events.js';
+import { readProjectShared } from './events.js';
 import { reduceReviews, judgeUsage, PENDING_DAYS } from './judge.js';
 import { loadProjectSettings } from './project-rules.js';
 import { t } from './i18n.js';
 import {replay} from './ledger.js';
 import {courtDisabled} from './control-state.js';
+import { sessionTimeline } from './history.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // A detention this recent still flashes in the band.
 export const PULSE_MS = 8000;
 
 export async function diagnostics($,ctx,failures=0) {
-  const read=await readProject($,ctx),state=replay(read.events),settings=await loadProjectSettings($,ctx);
+  const read=await readProjectShared($,ctx),state=replay(read.events),settings=await loadProjectSettings($,ctx);
   return {mode:courtDisabled()?'off':settings.mode,events:state.eventCount,runs:state.runs.length,calls:state.toolCalls.length,
     invalid:read.invalid.length,conflicts:state.conflicts.length,parts:read.parts.length,
-    ...statusCounts(await disciplineState($,ctx,true),reduceReviews(read.events,ctx.projectId)),failures};
+    ...statusCounts(await disciplineState($,ctx,true,true),reduceReviews(read.events,ctx.projectId)),failures};
 }
 
 // decided counts the decisions made on reviews still in their waiting window,
@@ -26,8 +27,8 @@ export function statusCounts(discipline, reviews, now = Date.now()) {
   const held = discipline.violations.filter(record => record.sanction === 'detain' && record.status === 'active');
   return { detainee: held.at(-1)?.citizen?.name ?? null, detained: new Set(discipline.violations.filter(record => record.sanction === 'detain' && record.status === 'active')
       .map(record => `${record.sessionId}:${record.agentId}`)).size,
-    pending: reviews.reduce((sum, review) => sum + review.findings.filter(finding => finding.state === 'open').length +
-      (review.exemplar.state === 'candidate' ? 1 : 0), 0),
+    // An exemplar candidate is a suggestion the person may take or leave: it never counts as a wait.
+    pending: reviews.reduce((sum, review) => sum + review.findings.filter(finding => finding.state === 'open').length, 0),
     decided: recent.reduce((sum, review) => sum + review.findings.filter(finding => ['confirmed', 'dismissed'].includes(finding.state)).length +
       (['approved', 'rejected'].includes(review.exemplar.state) ? 1 : 0), 0) };
 }
@@ -45,15 +46,18 @@ export async function refreshStatus($, ctx) {
   try {
     const settings = await loadProjectSettings($, ctx);
     const active = settings.mode !== 'off' && !courtDisabled();
-    let counts = { detained: 0, pending: 0, decided: 0, detainee: null, judgedToday: 0, violations: 0 };
+    let counts = { detained: 0, pending: 0, decided: 0, detainee: null, judgedToday: 0, violations: 0 }, timeline = null;
     if (active) {
-      const events = (await readProject($, ctx)).events, discipline = await disciplineState($, ctx, true);
-      counts = { ...statusCounts(discipline, reduceReviews(events, ctx.projectId)), judgedToday: judgeUsage(events, ctx.projectId).today,
+      const events = (await readProjectShared($, ctx)).events, discipline = await disciplineState($, ctx, true, true);
+      const reviews = reduceReviews(events, ctx.projectId);
+      counts = { ...statusCounts(discipline, reviews), judgedToday: judgeUsage(events, ctx.projectId).today,
         violations: discipline.violations.filter(record => record.status === 'active').length };
+      // This session's agents, for the band's open list.
+      timeline = sessionTimeline(events, ctx.projectId, ctx.sessionId, { discipline, reviews });
     }
     const previous = snapshots.get(keyOf(ctx)), now = Date.now();
     const detainedAt = previous && counts.detained > previous.detained ? now : previous?.detainedAt ?? 0;
-    snapshots.set(keyOf(ctx), { ...counts, detainedAt, expanded: previous?.expanded ?? false,
+    snapshots.set(keyOf(ctx), { ...counts, timeline, detainedAt, expanded: previous?.expanded ?? false,
       hidden: previous?.hidden && counts.detained <= previous.detained && counts.pending <= previous.pending });
     if (previous) {
       try {

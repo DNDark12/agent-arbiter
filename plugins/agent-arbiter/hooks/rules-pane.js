@@ -1,8 +1,11 @@
 import { observationContext } from './context.js';
-import { ACTIONS, EFFECTS, loadProjectSettings, updateProjectSettings, listRules, toggleBuiltin, createUserRule, updateUserRule, deleteUserRule } from './project-rules.js';
+import { ACTIONS, EFFECTS, JUDGE_MODELS, loadProjectSettings, updateProjectSettings, listRules, toggleBuiltin, createUserRule, updateUserRule, deleteUserRule } from './project-rules.js';
 import { disciplineState, docket, releaseViolations } from './discipline.js';
-import { t, ruleLabel, actionLabel } from './i18n.js';
-import { readProject } from './events.js';
+import { t, ruleLabel, actionLabel, currentLanguage } from './i18n.js';
+import { checkFinding, translateTexts, translated } from './review-assist.js';
+import { sessionTimeline, recentSessions } from './history.js';
+import { timelineRow } from './history-view.js';
+import { readProjectShared } from './events.js';
 import {reduceScores,allProjectScoreRows,scoreUsage} from './scoring.js';
 import {projectLessons,shareLessons,unshareLessons,loadLibrary,lessonEffects,experimentResults} from './lessons.js';
 import {reduceReviews,decideFinding,decideExemplar,judgeUsage,JUDGE_MODEL,DAILY_TRIALS} from './judge.js';
@@ -19,9 +22,12 @@ const states=new Map();
 function key(ctx){return `${ctx.archiveRoot}:${ctx.projectId}`;}
 function stateFor(ctx){
   if(!states.has(key(ctx)))states.set(key(ctx),{tab:'settings',search:'',group:'all',page:0,editor:null,confirm:null,message:'',
-    pending:false,maintenance:false,diagnostics:null,data:null,pages:{},violationFilter:'all',agentSection:'scores',scoreScope:'project',scoreKind:'all',agentSearch:'',lessonScope:'project',reviewFilter:'pending',detail:null});
+    pending:false,maintenance:false,diagnostics:null,data:null,pages:{},violationFilter:'all',agentSection:'scores',scoreScope:'project',scoreKind:'all',agentSearch:'',lessonScope:'project',reviewFilter:'pending',detail:null,
+    busy:new Set(),autoRun:null,autoNotes:new Map(),translating:false});
   return states.get(key(ctx));
 }
+// A time as the person reads it: their own clock, to the minute.
+function localTime(at){const date=new Date(at);return new Date(at-date.getTimezoneOffset()*60000).toISOString().slice(0,16).replace('T',' ');}
 function redraw($){$.ui.invalidate('ui.render');}
 function change($,state,values){Object.assign(state,values);redraw($);}
 function errorText(error){return t('pane.failed',{error:error instanceof Error?error.message:String(error)});}
@@ -149,14 +155,15 @@ function rulesView($,h,ctx,state,settings){
 // action. Search/filters and input redraws reuse the same snapshot.
 async function dataset($,ctx,state,settings){
   if(!state.data){
-    const events=(await readProject($,ctx)).events,discipline=await disciplineState($,ctx,true);
+    const events=(await readProjectShared($,ctx)).events,discipline=await disciplineState($,ctx,true,true);
     const reviews=reduceReviews(events,ctx.projectId);
     state.data={events,discipline,reviews,rows:reduceScores(events,ctx.projectId,discipline,settings.roles,reviews),
       lessons:await projectLessons($,ctx,settings),library:await loadLibrary($,ctx)};
   }
   return state.data;
 }
-function paged($,h,state,id,rows){
+function paged($,h,state,id,rows,size=PAGE_SIZE){
+  const PAGE_SIZE=size;
   const page=Math.max(0,Math.min(state.pages[id] || 0,Math.ceil(rows.length/PAGE_SIZE)-1));
   const controls=h.Box({flexDirection:'row',gap:1,children:[
     h.Text({dimColor:true,children:t('pane.range',{from:rows.length?page*PAGE_SIZE+1:0,to:Math.min(rows.length,(page+1)*PAGE_SIZE),count:rows.length})}),
@@ -197,7 +204,7 @@ async function violationsView($,h,ctx,state,settings){
           {animate:true,detained:record.sanction==='detain' && record.status==='active'},record.who),
         h.Text({bold:true,children:record.who}),
       ]}),
-      h.Text({children:`${new Date(record.at).toISOString().slice(0,16).replace('T',' ')} · ${t('sanction.'+record.sanction)} · -${record.points} · ${t('status.'+record.status)}`}),
+      h.Text({children:`${localTime(record.at)} · ${t('sanction.'+record.sanction)} · -${record.points} · ${t('status.'+record.status)}`}),
       h.Text({dimColor:true,children:record.ruleIds.map(id=>id.startsWith('user:')?id:t('rule.'+id)).join(', ')}),
       ...(record.releaseReason?[h.Text({children:t('settings.reasonValue',{reason:record.releaseReason})})]:[]),
       h.Box({flexDirection:'row',gap:1,children:[
@@ -208,17 +215,57 @@ async function violationsView($,h,ctx,state,settings){
     controls,
   ]});
 }
-async function decide($,ctx,kind,ref,decision){
-  return runAction($,ctx,async()=>{
-    const reviews=reduceReviews((await readProject($,ctx)).events,ctx.projectId);
-    const pending=kind==='finding'?reviews.some(review=>review.findings.some(finding=>finding.ref===ref && finding.state==='open')):
+// An answer is recorded without hiding the panel or reading everything again:
+// only its own buttons wait, and the list shown is patched in place.
+async function decide($,ctx,kind,ref,decision,extra={}){
+  const state=stateFor(ctx);if(state.busy.has(ref))return false;
+  state.busy.add(ref);redraw($);
+  try{
+    const reviews=reduceReviews((await readProjectShared($,ctx)).events,ctx.projectId);
+    // A noted finding can be decided too: the detail view offers it.
+    const pending=kind==='finding'?reviews.some(review=>review.findings.some(finding=>finding.ref===ref && ['open','noted'].includes(finding.state))):
       reviews.some(review=>review.ref===ref && review.exemplar.state==='candidate');
     if(!pending)throw new Error(t('pane.decideGone'));
-    const done=kind==='finding'?await decideFinding($,ctx,reviews,ref,decision,uiSource()):await decideExemplar($,ctx,reviews,ref,decision,uiSource());
+    const source={...uiSource(),...extra};
+    const done=kind==='finding'?await decideFinding($,ctx,reviews,ref,decision,source):await decideExemplar($,ctx,reviews,ref,decision,source);
     if(!done)throw new Error(t('pane.decideGone'));
-    await refreshStatus($,ctx);return t('pane.decided');
-  });
+    for(const review of state.data?.reviews ?? []){
+      if(kind==='finding'){
+        const finding=review.findings.find(item=>item.ref===ref);
+        if(finding){finding.state=decision;review.disputed=review.findings.some(item=>item.state==='dismissed');}
+      }else if(review.ref===ref)review.exemplar.state=decision;
+    }
+    state.message=t('pane.decided');void refreshStatus($,ctx);return true;
+  }catch(error){state.message=errorText(error);return false;}
+  finally{state.busy.delete(ref);redraw($);}
 }
+// The person's own button: the judge model checks each waiting finding in turn and
+// its answer is recorded as theirs, marked automatic. What it cannot tell stays.
+async function autoReview($,ctx,state,settings){
+  if(state.autoRun)return;
+  const items=(state.data?.reviews ?? []).flatMap(review=>review.findings.filter(finding=>finding.state==='open').map(finding=>({review,finding})));
+  const model=settings.judgeModel ?? 'haiku',run={done:0,total:items.length,confirmed:0,dismissed:0,unsure:0};
+  state.autoRun=run;redraw($);
+  try{
+    for(const {review,finding} of items){
+      let verdict=null;try{verdict=await checkFinding($,ctx,review,finding,model);}catch{ /* Left for the person. */ }
+      if(verdict && verdict.decision!=='unsure' && await decide($,ctx,'finding',finding.ref,verdict.decision,{auto:true,model}))run[verdict.decision]+=1;
+      else{run.unsure+=1;state.autoNotes.set(finding.ref,verdict?.why || t('pane.autoUnsure'));}
+      run.done+=1;redraw($);
+    }
+  }finally{state.autoRun=null;state.message=t('pane.autoDone',run);redraw($);}
+}
+async function translatePage($,state,reviews){
+  if(state.translating)return;
+  state.translating=true;redraw($);
+  try{
+    const texts=reviews.flatMap(review=>[...review.findings.flatMap(finding=>[finding.claim,finding.evidence]),review.exemplar.why]);
+    const added=await translateTexts($,texts,currentLanguage());
+    state.message=added?t('pane.translated',{count:added}):t('pane.translateNone');
+  }catch(error){state.message=errorText(error);}
+  finally{state.translating=false;redraw($);}
+}
+const shown=text=>translated(text,currentLanguage()) ?? text;
 function roleSelect($,h,ctx,name,settings){
   return h.Select({key:'role:'+name,label:t('settings.role'),value:settings.roles[name] || 'auto',
     options:['auto',...ROLES].map(value=>({value,label:value==='auto'?t('settings.automatic'):t('role.'+value)})),
@@ -293,52 +340,114 @@ function lessonsView($,h,ctx,state,settings,data){
   ]});
 }
 function reviewsView($,h,ctx,state,settings,data){
-  const pending=review=>review.findings.some(finding=>finding.state==='open') || review.exemplar.state==='candidate';
-  const rows=[...data.reviews].reverse().filter(review=>state.reviewFilter==='all' || (state.reviewFilter==='pending'?pending(review):!pending(review)));
+  const pending=review=>review.findings.some(finding=>finding.state==='open');
+  const suggested=review=>!pending(review) && review.exemplar.state==='candidate';
+  const kindOf=review=>pending(review)?'pending':suggested(review)?'suggested':'completed';
+  const rows=[...data.reviews].reverse().filter(review=>state.reviewFilter==='all' || kindOf(review)===state.reviewFilter);
+  const noted=data.reviews.reduce((sum,review)=>sum+review.findings.filter(finding=>finding.state==='noted').length,0);
+  const waitingCount=data.reviews.reduce((sum,review)=>sum+review.findings.filter(finding=>finding.state==='open').length,0);
+  const answer=(key,label,ref,run)=>h.Button({key,label:state.busy.has(ref)?t('settings.working'):label,onPress:()=>state.busy.has(ref) || state.autoRun?undefined:run()});
   const {visible,controls}=paged($,h,state,'reviews',rows),usage=judgeUsage(data.events,ctx.projectId);
   const detail=state.detail?.kind==='review'?data.reviews.find(review=>review.id===state.detail.id):null;
   if(detail)return h.Box({flexDirection:'column',gap:1,children:[
     h.Button({key:'back-reviews',label:t('pane.back'),plain:true,onPress:()=>change($,state,{detail:null})}),
-    h.Text({bold:true,children:`${t('settings.details')} · ${detail.citizen?.name || 'agent'}`}),
-    h.Text({dimColor:true,children:detail.id}),
-    ...Object.entries(detail.scores).map(([dimension,score])=>h.Text({children:`${t('dimension.'+dimension)}: ${score ?? '—'}`})),
+    h.Text({bold:true,children:`${t('settings.details')} · ${detail.citizen?.kind==='main'?t('pane.agentKind.main'):detail.citizen?.name || 'agent'}`}),
+    h.Text({dimColor:true,children:`${localTime(detail.at)} · ${detail.ref}`}),
+    ...Object.entries(detail.scores).map(([dimension,score])=>h.Text({children:`${t('dimension.'+dimension)}: ${score===null?t('tbl.undetermined'):t('score.outOf5',{value:score})}`})),
     ...(detail.findings.some(finding=>['open','noted'].includes(finding.state))?[h.Text({dimColor:true,children:t('pane.findingHint')})]:[]),
     ...detail.findings.map(finding=>h.Box({flexDirection:'column',gap:1,children:[
-      h.Text({children:`${finding.severity} · ${t('dimension.'+finding.dimension)} · ${t('settings.decision.'+finding.state)}`}),
-      h.Text({children:finding.claim}),h.Text({dimColor:true,children:finding.evidence}),
+      h.Text({children:`${t('severity.'+finding.severity)} · ${t('dimension.'+finding.dimension)} · ${t('settings.decision.'+finding.state)}`}),
+      h.Text({children:shown(finding.claim)}),h.Text({dimColor:true,children:shown(finding.evidence)}),
       ...(['open','noted'].includes(finding.state)?[h.Box({flexDirection:'row',gap:1,children:[
         h.Button({key:'confirm:'+finding.ref,label:t('pane.confirmFinding'),onPress:()=>decide($,ctx,'finding',finding.ref,'confirmed')}),
         h.Button({key:'dismiss:'+finding.ref,label:t('pane.dismissFinding'),onPress:()=>decide($,ctx,'finding',finding.ref,'dismissed')}),
       ]})]:[]),
     ]})),
-    ...(detail.exemplar.state!=='none'?[h.Text({children:`${t('pane.exemplar')} · ${t('settings.decision.'+detail.exemplar.state)}: ${detail.exemplar.why}`})]:[]),
+    ...(detail.exemplar.state!=='none'?[h.Text({children:`${t('pane.exemplar')} · ${t('settings.decision.'+detail.exemplar.state)}: ${shown(detail.exemplar.why)}`})]:[]),
     ...(detail.exemplar.state==='candidate'?[h.Text({dimColor:true,children:t('pane.exemplarHint')}),h.Box({flexDirection:'row',gap:1,children:[
       h.Button({key:'approve:'+detail.ref,label:t('pane.approve'),onPress:()=>decide($,ctx,'exemplar',detail.ref,'approved')}),
       h.Button({key:'reject:'+detail.ref,label:t('pane.reject'),onPress:()=>decide($,ctx,'exemplar',detail.ref,'rejected')}),
     ]})]:[]),
   ]});
   return h.Box({flexDirection:'column',gap:1,children:[
-    h.Text({children:t('tbl.judgeHead',{state:t(settings.judge?'cmd.on':'cmd.off'),model:JUDGE_MODEL,today:usage.today,cap:DAILY_TRIALS,trials:usage.trials,input:usage.inputTokens,output:usage.outputTokens})}),
-    h.Select({key:'review-filter',label:t('settings.filter'),value:state.reviewFilter,options:['pending','completed','all'].map(value=>({value,label:t('settings.'+value)})),onSelect:value=>{state.pages.reviews=0;change($,state,{reviewFilter:value,detail:null});}}),
+    h.Text({children:t('tbl.judgeHead',{state:t(settings.judge?'cmd.on':'cmd.off'),model:settings.judgeModel ?? JUDGE_MODEL,today:usage.today,cap:DAILY_TRIALS,trials:usage.trials,input:usage.inputTokens,output:usage.outputTokens})}),
+    h.Text({dimColor:true,children:t('pane.reviewsHint')}),
+    ...(noted?[h.Text({dimColor:true,children:t('pane.autoNoted',{count:noted})})]:[]),
+    ...(state.autoRun?[h.Text({children:t('pane.autoRunning',state.autoRun)})]:waitingCount||currentLanguage()!=='en'?[h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',children:[
+      ...(waitingCount?[h.Button({key:'auto-review',label:t('pane.auto',{count:waitingCount}),onPress:()=>autoReview($,ctx,state,settings)})]:[]),
+      ...(currentLanguage()!=='en'?[h.Button({key:'translate-reviews',label:t(state.translating?'pane.translating':'pane.translate'),onPress:()=>translatePage($,state,visible)})]:[]),
+    ]})]:[]),
+    ...(waitingCount && !state.autoRun?[h.Text({dimColor:true,children:t('pane.autoHint',{model:settings.judgeModel ?? JUDGE_MODEL})})]:[]),
+    h.Select({key:'review-filter',label:t('settings.filter'),value:state.reviewFilter,options:['pending','suggested','completed','all'].map(value=>({value,label:t('settings.'+value)})),onSelect:value=>{state.pages.reviews=0;change($,state,{reviewFilter:value,detail:null});}}),
     ...(visible.length?visible.map(review=>h.Box({key:'review-row:'+review.id,flexDirection:'column',gap:1,children:[
       h.Box({flexDirection:'row',alignItems:'center',gap:1,children:[
         roleIcon(h,state.surface,review.citizen?.kind==='main'?'main':review.role,24,{animate:true},t('role.'+review.role)),
         h.Box({flexDirection:'row',flexWrap:'wrap',flexShrink:1,columnGap:1,children:[
           h.Text({bold:true,children:review.citizen?.kind==='main'?t('pane.agentKind.main'):review.citizen?.name || 'agent'}),
-          h.Text({dimColor:true,children:`${t('role.'+review.role)} · ${t('difficulty.'+review.difficulty)}`}),
+          h.Text({dimColor:true,children:`${localTime(review.at)} · ${t('role.'+review.role)} · ${t('difficulty.'+review.difficulty)}`}),
         ]}),
       ]}),
       levelRow(h,state.surface,{key:'quality',label:t('score.quality'),figure:review.quality===null?t('score.notReviewed'):t('score.outOf100',{value:review.quality}),
         bar:review.quality===null?null:{value:review.quality,max:100,color:COLORS.quality}},state.columns),
-      h.Button({key:'review:'+review.id,label:t('settings.details'),onPress:()=>change($,state,{detail:{kind:'review',id:review.id}})}),
+      // What waits is shown here with its two answers, so a decision needs no trip into the details.
+      ...review.findings.filter(finding=>finding.state==='open').map(finding=>h.Box({key:'open:'+finding.ref,flexDirection:'column',gap:1,children:[
+        h.Text({children:`${t('severity.'+finding.severity)} · ${t('dimension.'+finding.dimension)}: ${shown(finding.claim)}`}),
+        ...(state.autoNotes.has(finding.ref)?[h.Text({dimColor:true,children:t('pane.autoNote',{why:shown(state.autoNotes.get(finding.ref))})})]:[]),
+        h.Box({flexDirection:'row',gap:1,children:[
+          answer('confirm:'+finding.ref,t('pane.confirmFinding'),finding.ref,()=>decide($,ctx,'finding',finding.ref,'confirmed')),
+          answer('dismiss:'+finding.ref,t('pane.dismissFinding'),finding.ref,()=>decide($,ctx,'finding',finding.ref,'dismissed')),
+        ]}),
+      ]})),
+      ...(suggested(review)?[h.Box({flexDirection:'column',gap:1,children:[
+        h.Text({children:shown(review.exemplar.why)}),
+        h.Box({flexDirection:'row',gap:1,children:[
+          answer('approve:'+review.ref,t('pane.approve'),review.ref,()=>decide($,ctx,'exemplar',review.ref,'approved')),
+          answer('reject:'+review.ref,t('pane.reject'),review.ref,()=>decide($,ctx,'exemplar',review.ref,'rejected')),
+        ]}),
+      ]})]:[]),
+      h.Button({key:'review:'+review.id,label:t('settings.details'),plain:true,onPress:()=>change($,state,{detail:{kind:'review',id:review.id}})}),
     ]})):[h.Text({dimColor:true,children:t('settings.noReviews')})]),controls,
+  ]});
+}
+// The sessions of this project and, for the one chosen, the thread of its main
+// agent with a branch for every agent it sent; a run opens to what it did.
+function historyView($,h,ctx,state,data){
+  const sessions=recentSessions(data.events,ctx.projectId,20);
+  const chosen=sessions.some(session=>session.sessionId===state.historySession)?state.historySession:
+    sessions.some(session=>session.sessionId===ctx.sessionId)?ctx.sessionId:sessions[0]?.sessionId;
+  if(!chosen)return h.Text({dimColor:true,children:t('history.empty')});
+  const timeline=sessionTimeline(data.events,ctx.projectId,chosen,{discipline:data.discipline,reviews:data.reviews});
+  const picker=h.Select({key:'history-session',label:t('history.session'),value:chosen,options:sessions.map(session=>({value:session.sessionId,
+    label:`${session.sessionId===ctx.sessionId?t('history.thisSession')+' · ':''}${localTime(session.endedAt)} · ${t('history.sessionFigure',{agents:session.agents,calls:session.calls})}`})),
+    onSelect:value=>{state.pages.history=0;change($,state,{historySession:value,detail:null});}});
+  const agent=state.detail?.kind==='run'?timeline?.agents.find(run=>run.agentId===state.detail.id):null;
+  if(agent)return h.Box({flexDirection:'column',gap:1,children:[
+    h.Button({key:'back-history',label:t('pane.back'),plain:true,onPress:()=>change($,state,{detail:null})}),
+    timelineRow(h,state.surface,agent,{lanes:1,first:true,last:true,size:32}),
+    h.Text({dimColor:true,children:`${localTime(agent.startedAt)}${agent.endedAt?' → '+localTime(agent.endedAt).slice(11):''} · ${agent.agentId}`}),
+    h.Text({children:agent.tools.length?t('history.tools',{tools:agent.tools.map(item=>`${item.tool} ${item.count}`).join(' · ')}):t('history.noTools')}),
+    ...(agent.files?[h.Text({dimColor:true,children:t('history.files',{count:agent.files})})]:[]),
+    ...(agent.violations.length?agent.violations.map(record=>h.Text({key:'v:'+record.id,children:`${t('sanction.'+record.sanction)} · ${record.ruleIds.map(id=>id.startsWith('user:')?id:t('rule.'+id)).join(', ')} · ${t('status.'+record.status)}`})):[h.Text({dimColor:true,children:t('history.clean')})]),
+    ...agent.findings.map(finding=>h.Text({key:'f:'+finding.ref,children:`${t('severity.'+finding.severity)} · ${t('settings.decision.'+finding.state)}: ${shown(finding.claim)}`})),
+    ...(agent.reviewId?[h.Button({key:'run-review',label:t('history.openReview'),onPress:()=>change($,state,{agentSection:'reviews',reviewFilter:'all',detail:{kind:'review',id:agent.reviewId}})})]:[]),
+  ]});
+  const runs=timeline?.agents ?? [];
+  const {visible,controls}=paged($,h,state,'history',[...runs].reverse(),20);
+  return h.Box({flexDirection:'column',gap:1,children:[picker,
+    h.Box({flexDirection:'column',children:[
+      timelineRow(h,state.surface,{main:true,...timeline.main},{lanes:timeline.lanes,first:true,last:!runs.length}),
+      ...visible.map((run,index)=>timelineRow(h,state.surface,run,{lanes:timeline.lanes,last:index===visible.length-1,
+        onPress:()=>change($,state,{detail:{kind:'run',id:run.agentId}})})),
+    ]}),
+    ...(runs.length?[controls]:[h.Text({dimColor:true,children:t('history.none')})]),
   ]});
 }
 async function citizensView($,h,ctx,state,settings){
   const data=await dataset($,ctx,state,settings);
-  const body=state.agentSection==='lessons'?lessonsView($,h,ctx,state,settings,data):state.agentSection==='reviews'?reviewsView($,h,ctx,state,settings,data):await scoresView($,h,ctx,state,settings,data);
+  const body=state.agentSection==='lessons'?lessonsView($,h,ctx,state,settings,data):state.agentSection==='reviews'?reviewsView($,h,ctx,state,settings,data):
+    state.agentSection==='history'?historyView($,h,ctx,state,data):await scoresView($,h,ctx,state,settings,data);
   return h.Box({flexDirection:'column',gap:1,children:[
-    h.Select({key:'agent-section',label:t('settings.agentSection'),value:state.agentSection,options:['scores','lessons','reviews'].map(value=>({value,label:t('settings.section.'+value)})),onSelect:value=>change($,state,{agentSection:value,detail:null,data:null})}),body,
+    h.Select({key:'agent-section',label:t('settings.agentSection'),value:state.agentSection,options:['history','scores','lessons','reviews'].map(value=>({value,label:t('settings.section.'+value)})),onSelect:value=>change($,state,{agentSection:value,detail:null,data:null})}),body,
   ]});
 }
 async function settingsView($,h,ctx,state,settings,failures){
@@ -357,6 +466,7 @@ async function settingsView($,h,ctx,state,settings,failures){
     ...(!masterIsEnabled()?[h.Text({bold:true,children:t('settings.disabledGlobally')})]:[]),
     ...settings.hardened?[h.Text({children:t('settings.hardened')})]:[],
     ...['judge','lessons','lessonExperiment'].map((name,index)=>h.Button({key:['toggle-judge','toggle-lessons','toggle-experiment'][index],label:t(['pane.judge','pane.lessons','settings.experiment'][index])+': '+t(settings[name]?'pane.toggle.on':'pane.toggle.off'),onPress:()=>mutate($,ctx,latest=>({...latest,[name]:!latest[name]}))})),
+    h.Select({key:'judge-model',label:t('settings.judgeModel'),value:settings.judgeModel ?? 'haiku',options:JUDGE_MODELS.map(value=>({value,label:t('settings.judgeModel.'+value)})),onSelect:value=>mutate($,ctx,latest=>({...latest,judgeModel:value}))}),
     h.Text({dimColor:true,children:t('pane.judgeHint')}),h.Text({dimColor:true,children:t('settings.experimentHint')}),
     h.Text({bold:true,children:t('settings.diagnostics')}),
     ...(state.diagnostics?[h.Text({children:t('cmd.status',state.diagnostics)})]:[]),
@@ -375,6 +485,8 @@ async function settingsView($,h,ctx,state,settings,failures){
 function focusOn(state,focus){
   if(focus==='jail')Object.assign(state,{tab:'violations',violationFilter:'active',pages:{...state.pages,violations:0}});
   if(focus==='review')Object.assign(state,{tab:'citizens',agentSection:'reviews',reviewFilter:'pending',pages:{...state.pages,reviews:0}});
+  // A run pressed in the band: its session's timeline, at that run.
+  if(focus?.kind==='run')Object.assign(state,{tab:'citizens',agentSection:'history',historySession:focus.sessionId,detail:focus.agentId?{kind:'run',id:focus.agentId}:null});
 }
 // The overview at the top of the pane, after the progress tracker people liked:
 // a state pill, a grid of figures under small capital labels, a chip for each

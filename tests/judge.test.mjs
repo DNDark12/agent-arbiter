@@ -236,3 +236,24 @@ test('a reviewer is a plaintiff: defects it reports are filed against the agent 
  assert.ok(!w.requests.at(-1).prompt.includes('"accusations"'));
  assert.equal((await reviews(w,ctx)).filter(review=>review.plaintiff).length,2);
 });
+
+test('a finding waits for an answer only when it could change what the person does',()=>{
+  const event=(id,difficulty,findings,extra={})=>({id,projectId:'p',kind:'judge.review',occurredAt:Date.now()-1000,sessionId:'s',agentId:null,
+    data:{scores:{completeness:5},findings,difficulty,role:'other',exemplar:{worthy:false,why:''},...extra}});
+  const finding=(severity,dimension)=>({severity,dimension,claim:'c',evidence:'e'});
+  const state=(difficulty,severity,dimension)=>judge.reduceReviews([event('a'.repeat(64),difficulty,[finding(severity,dimension)])],'p')[0].findings[0].state;
+  assert.equal(state('easy','low','correctness'),'noted');
+  assert.equal(state('easy','medium','honesty'),'noted','a process remark on an easy task is noted on its own');
+  assert.equal(state('easy','medium','verification'),'noted');
+  assert.equal(state('easy','medium','correctness'),'open','a correctness doubt still waits');
+  assert.equal(state('easy','medium','security'),'open');
+  assert.equal(state('medium','medium','honesty'),'open','a medium finding on real work still waits');
+  assert.equal(state('easy','high','honesty'),'open','a high finding always waits');
+});
+
+test('a suggested example never counts as a wait',async()=>{
+  const {statusCounts}=await import('../plugins/agent-arbiter/hooks/status.js');
+  const now=Date.now(),review=state=>({at:now-1000,findings:[{state}],exemplar:{state:'candidate'}});
+  assert.equal(statusCounts({violations:[]},[review('noted')],now).pending,0,'a candidate and a noted finding wait for nothing');
+  assert.equal(statusCounts({violations:[]},[review('open')],now).pending,1);
+});

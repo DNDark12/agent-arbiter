@@ -1,4 +1,7 @@
 import { ROLES } from './roles.js';
+
+// The models the judge may use, cheapest first. Aliases the session's own client resolves.
+export const JUDGE_MODELS = Object.freeze(['haiku', 'sonnet', 'opus']);
 // Built-in rules: the standard set every project gets, in any language; details
 // belong in a project's custom rules. They can only be switched on or off. The last three are off until
 // the person switches them on: commit, push and migrate are ordinary work in
@@ -70,12 +73,15 @@ function validate(input) {
   // person's own role per agent type name, overriding the automatic one.
   // judge: review finished subagent runs with one small model call each.
   // lessonExperiment: hold lessons back from one run in five, to measure whether they help.
+  // judgeModel: the model the judge and the automatic review use; haiku is the cheapest.
   const lessons = input.lessons ?? true, roles = input.roles ?? {}, judge = input.judge ?? true, lessonExperiment = input.lessonExperiment ?? false;
+  const judgeModel = input.judgeModel ?? 'haiku';
   if (typeof lessons !== 'boolean' || typeof judge !== 'boolean' || typeof lessonExperiment !== 'boolean') throw new Error('Invalid lessons or judge switch');
+  if (!JUDGE_MODELS.includes(judgeModel)) throw new Error('Invalid judge model');
   if (!roles || typeof roles !== 'object' || Array.isArray(roles) || Object.keys(roles).length > MAX_RULES ||
       Object.entries(roles).some(([name, role]) => !/^[A-Za-z0-9:_. -]{1,128}$/.test(name) || !ROLES.includes(role))) throw new Error('Invalid agent role');
   return { mode, hardened, disabledRules: [...new Set(disabledRules)], enabledRules: [...new Set(enabledRules)], rules: validated,
-    lessons, judge, lessonExperiment, roles: Object.fromEntries(Object.entries(roles).sort(([left], [right]) => left < right ? -1 : 1)) };
+    lessons, judge, judgeModel, lessonExperiment, roles: Object.fromEntries(Object.entries(roles).sort(([left], [right]) => left < right ? -1 : 1)) };
 }
 
 export async function loadProjectSettings($, ctx) {

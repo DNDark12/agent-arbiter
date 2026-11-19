@@ -132,6 +132,10 @@ function parseEnvelope(text, name) {
   return { envelope, event };
 }
 
+// A verified final is reused while its listed metadata is unchanged, for at most this long;
+// after it the content is read and checked again.
+const LEASE_MS = 30 * 1000;
+
 export async function readLedger($, directory, signer = null, cache = null) {
   const result = { events: [], invalid: [], parts: [] };
   if (!await $.fs.exists(directory)) return result;
@@ -151,7 +155,9 @@ export async function readLedger($, directory, signer = null, cache = null) {
     // Immutable finals are indexed by fresh metadata, including cross-process appends.
     // Missing metadata disables reuse; a short lease bounds stale host metadata.
     const path = pathIn(directory, entry.name);
-    const info = cache ? await $.fs.stat(path) : entry;
+    // The listing was just taken, so its metadata is as fresh as a stat: one call for the
+    // directory instead of one per file. A host that lists no times is stat'ed.
+    const info = cache && !Number.isFinite(entry.mtimeMs) ? await $.fs.stat(path) : entry;
     if (info.kind !== 'file' || info.isLink) {
       result.invalid.push({ name: entry.name, reason: 'Final entry is not a regular file' });
       continue;
@@ -160,7 +166,7 @@ export async function readLedger($, directory, signer = null, cache = null) {
       info.mtimeMs, info.ctimeMs ?? null, info.size ?? null, info.ino ?? null,
       info.realPath ?? null]) : null;
     const cached = cache?.get(path);
-    if (stamp && cached?.stamp === stamp && Date.now() - cached.verifiedAt < 30000) {
+    if (stamp && cached?.stamp === stamp && Date.now() - cached.verifiedAt < LEASE_MS) {
       result.events.push(JSON.parse(cached.body));
       continue;
     }
