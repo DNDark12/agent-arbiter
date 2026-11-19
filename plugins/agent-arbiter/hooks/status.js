@@ -7,7 +7,6 @@ import { loadProjectSettings } from './project-rules.js';
 import { t } from './i18n.js';
 import {replay} from './ledger.js';
 import {courtDisabled} from './control-state.js';
-import { sessionTimeline } from './history.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // A detention this recent still flashes in the band.
@@ -46,18 +45,20 @@ export async function refreshStatus($, ctx) {
   try {
     const settings = await loadProjectSettings($, ctx);
     const active = settings.mode !== 'off' && !courtDisabled();
-    let counts = { detained: 0, pending: 0, decided: 0, detainee: null, judgedToday: 0, violations: 0 }, timeline = null;
+    let counts = { detained: 0, pending: 0, decided: 0, detainee: null, judgedToday: 0, violations: 0 };
+    let recentReviews = [], detainedRecords = [];
     if (active) {
       const events = (await readProjectShared($, ctx)).events, discipline = await disciplineState($, ctx, true, true);
-      const reviews = reduceReviews(events, ctx.projectId);
-      counts = { ...statusCounts(discipline, reviews), judgedToday: judgeUsage(events, ctx.projectId).today,
+      const now = Date.now(), reviews = reduceReviews(events, ctx.projectId, now);
+      recentReviews = reviews.filter(review => now - review.at < PENDING_DAYS * DAY_MS);
+      detainedRecords = discipline.violations.filter(record => record.sanction === 'detain' && record.status === 'active');
+      counts = { ...statusCounts(discipline, reviews, now), judgedToday: judgeUsage(events, ctx.projectId, now).today,
         violations: discipline.violations.filter(record => record.status === 'active').length };
-      // This session's agents, for the band's open list.
-      timeline = sessionTimeline(events, ctx.projectId, ctx.sessionId, { discipline, reviews });
     }
     const previous = snapshots.get(keyOf(ctx)), now = Date.now();
     const detainedAt = previous && counts.detained > previous.detained ? now : previous?.detainedAt ?? 0;
-    snapshots.set(keyOf(ctx), { ...counts, timeline, detainedAt, expanded: previous?.expanded ?? false,
+    snapshots.set(keyOf(ctx), { ...counts, recentReviews, detainedRecords, detainedAt,
+      expanded: previous?.expanded ?? false, selected: previous?.selected ?? null,
       hidden: previous?.hidden && counts.detained <= previous.detained && counts.pending <= previous.pending });
     if (previous) {
       try {
@@ -74,7 +75,13 @@ export async function refreshStatus($, ctx) {
 // The band's list of every bar, or only the one that matters most.
 export function setBandExpanded($, ctx, expanded) {
   const snapshot = snapshots.get(keyOf(ctx));
-  if (snapshot) snapshots.set(keyOf(ctx), { ...snapshot, expanded });
+  if (snapshot) snapshots.set(keyOf(ctx), { ...snapshot, expanded, selected: null });
+  try { $.ui.invalidate('ui.render'); } catch { /* Best effort. */ }
+}
+
+export function selectBandProgress($, ctx, key) {
+  const snapshot = snapshots.get(keyOf(ctx));
+  if (snapshot) snapshots.set(keyOf(ctx), { ...snapshot, selected: snapshot.selected === key ? null : key });
   try { $.ui.invalidate('ui.render'); } catch { /* Best effort. */ }
 }
 

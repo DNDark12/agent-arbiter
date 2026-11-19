@@ -184,7 +184,7 @@ test('review pagination and a stale finding decision never overwrite a decision 
  const p=await pane(t,'citizens');let id;
  for(let n=0;n<8;n++)id=await emit(p.$,p.ctx,'coder','judge.review','r'+n,{scores:{honesty:3},findings:[{severity:'medium',dimension:'honesty',claim:'Claim '+n,evidence:'Evidence '+n}],exemplar:{worthy:false}});
  await p.select('agent-section','reviews');assert.ok(p.find('reviews-next'));await p.press('reviews-next');assert.match(p.text(),/7–8 \/ 8/);
- assert.equal(p.find('reviews-previous').props.children[0],'‹');
+ assert.equal(p.find('reviews-previous').props.label,'‹');
  assert.equal(p.find('pager-reviews').props.justifyContent,'center');
  assert.equal(p.find('reviews-next'),undefined);
  await p.press('reviews-previous');await p.press('review:'+id);const button=p.first('confirm:');assert.ok(button);
@@ -203,7 +203,16 @@ test('Vietnamese reviews translate the current page without changing the source 
  setLanguage('vi');
  await p.draw();
  const translation=p.find('translate-reviews');
- assert.match(translation.props.children[0],/Dịch/);
+ assert.equal(translation.props.label,'文 Dịch');
+ p.$.model={complete:async()=>({isAnswered:false})};
+ await p.press('translate-reviews');
+ for(let n=0;n<100;n++){
+  await p.draw();
+  if(p.text().includes('Model chưa trả bản dịch hợp lệ.'))break;
+  await new Promise(resolve=>setTimeout(resolve,5));
+ }
+ assert.match(p.text(),/Model chưa trả bản dịch hợp lệ/);
+ assert.match(p.text(),/Pagination skips a row/);
  p.$.model={complete:async({model,prompt})=>{
   assert.equal(model,'haiku');
   assert.deepEqual(JSON.parse(prompt),['Pagination skips a row.','The review fixture proves the skipped row.']);

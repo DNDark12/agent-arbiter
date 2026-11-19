@@ -5,23 +5,17 @@ import { observationContext } from './context.js';
 import { t } from './i18n.js';
 import { roleOf } from './roles.js';
 import { openRulesPane } from './rules-pane.js';
-import { bandSnapshot, hideBand, refreshStatus, setBandExpanded, PULSE_MS } from './status.js';
+import { bandSnapshot, hideBand, refreshStatus, selectBandProgress, setBandExpanded, PULSE_MS } from './status.js';
 import { decisionNote, sessionAsks } from './notes.js';
 import { DAILY_TRIALS } from './judge.js';
 import { COLORS, fraction, pillTrackSvg, pillWidth, roleIcon, svgOf } from './visuals.js';
-import { timelineRow } from './history-view.js';
+import { progressGraph, progressItems, progressTitle } from './progress-view.js';
 
 let lastContext = null;
 
 async function contextOf($) {
   lastContext = await observationContext($, { recoverPreferences: true });
   return lastContext;
-}
-
-// Opens the panel at one run of a session, or at the session's timeline.
-async function openAtRun($, sessionId, agentId) {
-  try { await openRulesPane($, await contextOf($), 'citizens', { kind: 'run', sessionId, agentId }); }
-  catch { /* The panel opens from /arbiter as well. */ }
 }
 
 // Opens the panel at what waits, or at its settings when nothing does.
@@ -35,9 +29,8 @@ async function openAtWaiting($) {
 // The band's bars, most urgent first. Bars that wait for the person (a
 // detention, review decisions) decide whether the band shows at all and which
 // bar the small band shows; the session's activity (approval asks, the judge's
-// day) joins only the full list. Each bar is an icon, a meter whose pill names
-// the figure, and in the full list one dim figure. A detention has no known
-// total, so its meter is the pill alone.
+// day) joins only the full list. The name stays left of the track and the
+// count is in the pill. A detention shows a count without a total.
 export function bandRows(snapshot, now = Date.now(), asks = { asked: 0, allowed: 0 }) {
   const rows = [];
   if (snapshot.detained) rows.push({
@@ -61,14 +54,13 @@ export function bandRows(snapshot, now = Date.now(), asks = { asked: 0, allowed:
   });
   if (snapshot.judgedToday) rows.push({
     key: 'judge', waiting: false, color: COLORS.judge, pill: t('band.chipJudge', { count: snapshot.judgedToday, cap: DAILY_TRIALS }),
-    meterLabel: t('band.judgeMeterLabel'),
     alt: t('band.judgeFigure', { count: snapshot.judgedToday, cap: DAILY_TRIALS }), stat: '', value: snapshot.judgedToday, max: DAILY_TRIALS, role: 'research',
   });
   return rows;
 }
 
-// Room the open and close buttons take at the end of the first row.
-const BUTTON_COLUMNS = 8;
+// Reserve the same room for the action group in every expanded row.
+const BUTTON_COLUMNS = 12;
 // The track takes the rest of the row; this only keeps a very wide window sane.
 const MAX_TRACK_COLUMNS = 160;
 const columnsOf = text => [...text].length + 2;
@@ -81,17 +73,16 @@ function bandLabel(row, free, small) {
 // One bar as drawn. columns is the row's width in cells and the track fills
 // what the pill leaves; the figure goes first when room runs short, then the
 // track, never the pill. small: the one-bar band, with no figure.
-export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, after = [], labelColumns = null) {
+export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, labelColumns = null) {
   const Svg = svgOf(h, surface), free = columns - 4 - (tail || labelColumns ? BUTTON_COLUMNS : 0);
-  const spaceForTrack = label => row.max ? Math.min(MAX_TRACK_COLUMNS, free - (labelColumns ?? columnsOf(label)) - 1 - after.length * 3) : 0;
-  const meterLabel = row.meterLabel ?? row.pill;
-  const ratio = Svg && onPress && row.max ? `${row.value}/${row.max}` : '';
-  const badge = ratio && spaceForTrack(meterLabel) * 7.5 >= pillWidth(ratio) + 24 ? ratio : '';
-  const label = badge ? meterLabel : bandLabel(row, free, small);
+  const spaceForTrack = label => row.max ? Math.min(MAX_TRACK_COLUMNS, free - (labelColumns ?? columnsOf(label)) - 1) : 0;
+  const meterLabel = progressTitle(row.key);
+  const ratio = onPress && row.max ? `${row.value}/${row.max}` : '';
+  const badge = Svg && ratio && spaceForTrack(meterLabel) * 7.5 >= pillWidth(ratio) + 24 ? ratio : '';
+  const label = ratio ? (badge ? meterLabel : `${meterLabel} · ${ratio}`) : bandLabel(row, free, small);
   const trackColumns = spaceForTrack(label);
   const lead = roleIcon(h, surface, row.role, 18, row.detained ? { detained: true, pulse: row.pulse } : { animate: row.waiting }, row.alt);
   const labelText = h.Text({ color: row.color, bold: true, maxLines: 1, children: ` ${label} ` });
-  const toggle = children => h.Button({ key: 'band-toggle-' + row.key, label: row.alt, plain: true, onPress, children });
   const content = [lead];
   if (Svg) {
     if (onPress) content.push(labelColumns ? h.Box({ key: 'label-' + row.key, width: labelColumns, flexShrink: 0, children: [labelText] }) : labelText);
@@ -102,11 +93,13 @@ export function drawRow(h, surface, row, columns, tail, small = false, onPress =
       content.push(Svg({ source: drawn.source, alt: row.alt, width: drawn.width, height: drawn.height,
         ...(row.value > 0 && row.max > 0 ? { isInteractive: true } : {}) }));
     }
-    content.push(...after);
-    // Claude buttons can only contain text. A stretched native button above
-    // the artwork covers the status row while keeping its controls separate.
+    // Desktop keeps native buttons at their content width. A Client covers
+    // the artwork without drawing another label or covering the action buttons.
     if (onPress) content.push(h.Box({ key: 'band-hit-' + row.key, position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
-      flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center', children: [toggle(['\u00a0'])] }));
+      flexDirection: 'column', alignItems: 'stretch', justifyContent: 'center',
+      children: [surface === 'desktop' && h.Client
+        ? h.Client({ key: 'band-toggle-' + row.key, module: './band-hit.js', width: '100%', height: '100%' })
+        : h.Button({ key: 'band-toggle-' + row.key, label: '⠀', plain: true, onPress })] }));
   } else {
     const cells = trackColumns >= 4 ? trackColumns : 0, share = fraction({ value: row.value, max: row.max });
     // One decided item must show: never round a started bar back to empty, nor a part-done one to full.
@@ -116,8 +109,9 @@ export function drawRow(h, surface, row, columns, tail, small = false, onPress =
       labelText,
       ...(cells - done ? [h.Text({ dimColor: true, children: '░'.repeat(cells - done) })] : []),
     ];
-    if (onPress) content.splice(0, 1, toggle([lead, ' ', ...meter, ...after]));
-    else content.push(h.Box({ flexDirection: 'row', flexShrink: 0, children: meter }), ...after);
+    if (onPress) content[0] = h.Button({ key: 'band-toggle-' + row.key, label: row.alt, plain: true, onPress,
+      children: [lead, ' ', ...meter] });
+    else content.push(h.Box({ flexDirection: 'row', flexShrink: 0, children: meter }));
   }
   const bar = h.Box({ position: 'relative', flexDirection: 'row', alignItems: 'center', gap: 1, flexShrink: 1, flexGrow: 1, children: content });
   return h.Box({ key: row.key, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 1, children: [
@@ -130,6 +124,13 @@ const outcomeText = outcome => t('note.' + (['approved', 'session-allow', 'refus
 const ruleName = id => id.startsWith('user:') ? t('note.custom') : t('rule.' + id);
 
 export function registerBand(on) {
+  on('ui.message', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (!e.element.startsWith('band-toggle-') || e.data !== 'toggle') return next(e);
+    const ctx = await contextOf($), snapshot = bandSnapshot(ctx);
+    const key = e.element.slice('band-toggle-'.length);
+    if (snapshot && !snapshot.hidden && bandRows(snapshot, Date.now(), sessionAsks()).some(row => row.key === key)) selectBandProgress($, ctx, key);
+    return {};
+  });
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const { bodyColumns, maxRows, hasSurvey } = e.props;
     if (hasSurvey || maxRows < 1) return next(e);
@@ -142,34 +143,27 @@ export function registerBand(on) {
     // Shown only while something waits; the activity bars ride along when open.
     if (!rows.some(row => row.waiting)) return next(e);
     const h = $.ui.resolve(e), expanded = snapshot.expanded === true;
+    const selected = rows.find(row => row.key === snapshot.selected);
     const icon = (key, label, onPress) => h.Button({ key, label, plain: true, dimColor: true, onPress });
-    const toggle = () => setBandExpanded($, ctx, !expanded);
+    const showDetails = () => void openRulesPane($, ctx, 'progress', { kind: 'progress', key: selected.key });
     const tail = h.Box({ key: 'actions', flexDirection: 'row', gap: 1, flexShrink: 0, children: [
-      icon('band-open', '↗', () => void openAtWaiting($)),
+      ...(rows.length > 1 ? [icon('band-list', '≡', () => setBandExpanded($, ctx, Boolean(selected) || !expanded))] : []),
+      icon('band-open', '↗', selected ? showDetails : () => void openAtWaiting($)),
       icon('band-hide', '×', () => hideBand($, ctx)),
     ] });
-    if (!expanded) {
-      // The small band: the one bar that matters most, and how many more there are.
-      const others = (bodyColumns ?? 80) < 22 ? 0 : rows.length - 1;
-      return drawRow(h, e.surface, rows[0], bodyColumns ?? 80, tail, true, toggle,
-        others ? [h.Text({ key: 'others', dimColor: true, children: '+' + others })] : []);
-    }
     const gap = svgOf(h, e.surface) ? 1 : 0, fit = gap ? Math.floor((maxRows + 1) / 2) : maxRows;
-    const columns = bodyColumns ?? 80, visible = rows.slice(0, Math.max(1, fit));
+    const columns = bodyColumns ?? 80, visible = selected ? [selected] : rows.slice(0, expanded ? Math.max(1, fit) : 1);
     const free = columns - 4 - BUTTON_COLUMNS;
-    const widestLabel = Math.max(...visible.map(row => columnsOf(row.meterLabel ?? row.pill)));
+    const widestLabel = Math.max(...visible.map(row => columnsOf(row.max ? progressTitle(row.key) : row.pill)));
     const labelColumns = gap && visible.length > 1 && free - widestLabel >= 14 ? widestLabel : null;
-    const bars = visible.map((row, index) => drawRow(h, e.surface, row, columns, index === 0 ? tail : undefined, false, toggle, [], labelColumns));
-    // Under the bars, the agents this session sent, newest last, as many as the rows left allow.
-    const runs = snapshot.timeline?.agents ?? [], room = maxRows - (gap ? bars.length * 2 : bars.length) - 1;
-    if (!runs.length || room < 2) return h.Box({ flexDirection: 'column', gap, children: bars });
-    const shown = runs.slice(-(runs.length > room - 1 ? room - 1 : room));
-    const open = run => () => void openAtRun($, ctx.sessionId, run?.agentId ?? null);
-    return h.Box({ flexDirection: 'column', gap, children: [...bars, h.Box({ key: 'session-runs', flexDirection: 'column', children: [
-      h.Text({ dimColor: true, children: t('history.bandTitle', { count: runs.length }) }),
-      ...(runs.length > shown.length ? [h.Button({ key: 'runs-more', plain: true, dimColor: true, label: t('history.more', { count: runs.length - shown.length }), onPress: open(null) })] : []),
-      ...shown.map((run, index) => timelineRow(h, e.surface, run, { lanes: snapshot.timeline.lanes, last: index === shown.length - 1, onPress: open(run) })),
-    ] })] });
+    const bars = visible.map((row, index) => drawRow(h, e.surface, row, columns, index === 0 ? tail : undefined, !expanded,
+      () => selectBandProgress($, ctx, row.key), labelColumns));
+    const room = maxRows - 1;
+    if (!selected || room < 1) return h.Box({ flexDirection: 'column', gap, children: bars });
+    const items = progressItems(snapshot, selected.key), more = items.length > room;
+    return h.Box({ flexDirection: 'column', children: [...bars,
+      progressGraph(h, e.surface, selected.key, items.slice(0, more ? room - 1 : room), more ? showDetails : null),
+    ] });
   });
 
   // The rule that stopped a call, and what came of it, under that call's row.

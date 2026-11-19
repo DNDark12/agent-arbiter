@@ -45,16 +45,54 @@ export function barText(bar, cells) {
 // track, square dots that grow denser and brighter toward the fill's end, and a
 // solid pill there that names what waits (and the figure, when it fits). With
 // nothing done yet the pill opens the track. A count with no known total (a
-// detention) is the pill alone. Groups of dots pulse in the bar's own color
-// across the filled area. Reduced motion uses a still rendering of the dots.
+// detention) is the pill alone. A stepped wave moves through a dense pixel
+// grid while scattered pixels flash independently in the same hue as the track.
 const PILL_HEIGHT = 20;
-const DOT = 3, PITCH = 4, DOT_ROWS = 4, PULSE_GROUPS = 8;
+const DOT = 2, PITCH = 3, PULSE_GROUPS = 16, STREAM_COLUMNS = 61;
 const escapeText = text => String(text).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]);
 // Close enough to the system font at 11.5px semibold to size the pill.
 export const textWidth = text => [...String(text)].reduce((sum, char) => sum + (/[0-9]/.test(char) ? 6.9 : char === ' ' ? 3.3 : /[A-ZĐ]/.test(char) ? 7.6 : 6.4), 0);
 export const pillWidth = label => Math.round(textWidth(label) + 22);
 // The same dots every time, from a hash of their place.
 const hash = n => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+const streamSteps = Array.from({ length: STREAM_COLUMNS + 1 }, (_, index) => `${-index * PITCH} 0`).join(';');
+const streamPattern = Array.from({ length: STREAM_COLUMNS }, (_, index) => {
+  const level = Math.round((hash(index + 41) + hash((index + 1) % STREAM_COLUMNS + 41) +
+    hash((index + 2) % STREAM_COLUMNS + 41)) * 2) / 6;
+  return `<rect x="${index * PITCH}" width="${PITCH}" height="${PILL_HEIGHT}" fill-opacity="${(.14 + level * .51).toFixed(2)}"/>`;
+}).join('');
+
+// The stationary grid masks a scrolling exposure pattern. Sparse flashes use
+// their own periods, so the bright pixels do not form fixed blinking stripes.
+function pixelStream(fill, end, moving) {
+  if (end < DOT + 2) return '';
+  const dots = `<pattern id="pixel-grid" width="${PITCH}" height="${PITCH}" y="1" patternUnits="userSpaceOnUse"><rect width="${DOT}" height="${DOT}" fill="${fill}"/></pattern>`;
+  const gradient = `<linearGradient id="pixel-fade"><stop stop-color="#fff" stop-opacity=".3"/><stop offset=".78" stop-color="#fff"/></linearGradient>`;
+  const fade = `<mask id="pixel-fade-mask"><rect width="${end}" height="${PILL_HEIGHT}" fill="url(#pixel-fade)"/></mask>`;
+  const grid = `<rect width="${end}" height="${PILL_HEIGHT}" fill="url(#pixel-grid)"/>`;
+  if (!moving) return `<defs>${dots}${gradient}${fade}</defs><g mask="url(#pixel-fade-mask)" opacity=".62">${grid}</g>`;
+
+  const exposure = `<pattern id="pixel-exposure" width="${STREAM_COLUMNS * PITCH}" height="${PILL_HEIGHT}" patternUnits="userSpaceOnUse" fill="#fff">${streamPattern}</pattern>`;
+  const wave = `<mask id="pixel-wave" maskUnits="userSpaceOnUse" x="0" y="0" width="${end}" height="${PILL_HEIGHT}"><rect width="${end + STREAM_COLUMNS * PITCH}" height="${PILL_HEIGHT}" fill="url(#pixel-exposure)"><animateTransform attributeName="transform" type="translate" calcMode="discrete" values="${streamSteps}" dur="3.8s" repeatCount="indefinite"/></rect></mask>`;
+  const flashes = Array.from({ length: PULSE_GROUPS }, () => []);
+  for (let x = 0; x + DOT <= end; x += PITCH) {
+    const density = .32 + .58 * (x / end);
+    for (let y = 1; y + DOT <= PILL_HEIGHT; y += PITCH) {
+      if (hash(x * 41 + y * 79) >= density) continue;
+      flashes[Math.floor(hash(x * 97 + y * 199) * PULSE_GROUPS)].push(`M${x} ${y}h${DOT}v${DOT}h-${DOT}z`);
+    }
+  }
+  const glints = flashes.map((group, index) => {
+    if (!group.length) return '';
+    const duration = (1.3 + hash(index * 193 + 19) * 2.1).toFixed(2);
+    const begin = (-Number(duration) * hash(index * 127 + 11)).toFixed(2);
+    return `<path d="${group.join('')}" opacity="0"><animate attributeName="opacity" calcMode="discrete" values="0;.5;1;.28;0;0" keyTimes="0;.09;.14;.2;.27;1" dur="${duration}s" begin="${begin}s" repeatCount="indefinite"/></path>`;
+  }).join('');
+  return `<defs>${dots}${gradient}${fade}${exposure}${wave}<clipPath id="filled"><rect width="${end}" height="${PILL_HEIGHT}"/></clipPath></defs>` +
+    '<style>.rest { display: none } @media (prefers-reduced-motion: reduce) { .mv { display: none } .rest { display: inline } }</style>' +
+    `<g class="mv" clip-path="url(#filled)" mask="url(#pixel-fade-mask)"><g mask="url(#pixel-wave)">${grid}</g><g fill="${fill}">${glints}</g></g>` +
+    `<g class="rest" mask="url(#pixel-fade-mask)" opacity=".62">${grid}</g>`;
+}
 
 export function pillTrackSvg({ label, color, value = 0, max = null, width = 240, moving = true }) {
   const fill = paint(color), pill = label ? pillWidth(label) : 0, mid = PILL_HEIGHT / 2;
@@ -66,34 +104,12 @@ export function pillTrackSvg({ label, color, value = 0, max = null, width = 240,
   const free = track - pill, share = fraction({ value, max });
   // One decided item must show: a started bar leaves the start by a visible step, a part-done one stops short of the end.
   const start = share > 0 ? Math.min(share < 1 ? free - Math.min(10, free / 2) : free, Math.max(Math.min(10, free / 2), Math.round(share * free))) : 0, end = start + pill;
-  const top = (PILL_HEIGHT - (DOT_ROWS - 1) * PITCH - DOT) / 2;
-  const parts = [`<rect width="${track}" height="${PILL_HEIGHT}" rx="${mid}" fill="#7F7F7F" fill-opacity="0.16"/>`];
-  const animate = moving && start > 12;
-  const pulses = Array.from({ length: PULSE_GROUPS }, () => []);
-  const still = [];
-  for (let x = PITCH; x < start - 2; x += PITCH) {
-    const ramp = Math.pow(x / start, 1.3);
-    for (let row = 0; row < DOT_ROWS; row++) {
-      if (hash(x * 31 + row * 7) > 0.62 + ramp * 0.38) continue;
-      const dot = `M${x} ${top + row * PITCH}h${DOT}v${DOT}h-${DOT}z`;
-      still.push(dot);
-      if (animate) pulses[Math.floor(x / (PITCH * 2)) % PULSE_GROUPS].push(dot);
-    }
-  }
+  const parts = [`<rect width="${track}" height="${PILL_HEIGHT}" rx="${mid}" fill="${fill}" fill-opacity="0.16"/>`];
+  if (start > 0) parts.push(pixelStream(fill, Math.max(0, start - 1), moving && start > 12));
   for (let i = 1; i < 4; i++) {
     const x = Math.round((i * track) / 4);
     if (x > end + 6 && x < track - 6) parts.push(`<rect x="${x}" y="6" width="1.5" height="8" rx="0.75" fill="#8F9BB1" opacity="0.55"/>`);
   }
-  if (animate) {
-    const wave = pulses.map((group, index) => {
-      if (!group.length) return '';
-      const begin = (-1.8 + index * 1.8 / PULSE_GROUPS).toFixed(2);
-      return `<path d="${group.join('')}" opacity=".52"><animate attributeName="opacity" values=".32;.98;.7;.32" keyTimes="0;.3;.52;1" dur="1.8s" begin="${begin}s" repeatCount="indefinite"/></path>`;
-    }).join('');
-    parts.push('<style>.rest { display: none } @media (prefers-reduced-motion: reduce) { .mv { display: none } .rest { display: inline } }</style>',
-      `<g class="mv" fill="${fill}">${wave}</g>`);
-  }
-  if (still.length) parts.push(`<path${animate ? ' class="rest"' : ''} d="${still.join('')}" fill="${fill}" opacity=".72"/>`);
   if (pill) parts.push(pillShape(start));
   return svg(track, parts.join(''));
 }

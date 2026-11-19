@@ -5,6 +5,7 @@ import { t, ruleLabel, actionLabel, currentLanguage } from './i18n.js';
 import { checkFinding, translateTexts, translated } from './review-assist.js';
 import { sessionTimeline, recentSessions } from './history.js';
 import { timelineRow } from './history-view.js';
+import { progressGraph, progressItems, progressTitle } from './progress-view.js';
 import { readProjectShared } from './events.js';
 import {reduceScores,allProjectScoreRows,scoreUsage} from './scoring.js';
 import {projectLessons,shareLessons,unshareLessons,loadLibrary,lessonEffects,experimentResults} from './lessons.js';
@@ -32,8 +33,8 @@ function stateFor(ctx){
 function localTime(at){const date=new Date(at);return new Date(at-date.getTimezoneOffset()*60000).toISOString().slice(0,16).replace('T',' ');}
 function redraw($){$.ui.invalidate('ui.render');}
 function change($,state,values){Object.assign(state,values);redraw($);}
-function iconButton(h,key,label,icon,onPress){
-  return h.Button({key,label,plain:true,children:[icon],onPress});
+function iconButton(h,key,icon,onPress){
+  return h.Button({key,label:icon,plain:true,onPress});
 }
 function errorText(error){return t('pane.failed',{error:error instanceof Error?error.message:String(error)});}
 async function runAction($,ctx,action){
@@ -109,7 +110,7 @@ function confirmationView($,h,ctx,state){
 function editorView($,h,ctx,state){
   const e=state.editor,command=e.action==='bash.command';
   return h.Box({flexDirection:'column',gap:1,children:[
-    iconButton(h,'back-rules',t('pane.back'),'←',()=>change($,state,{editor:null})),
+    iconButton(h,'back-rules','←',()=>change($,state,{editor:null})),
     h.Text({bold:true,children:t(e.original?'pane.editor.edit':'pane.editor.new')}),
     h.Select({key:'rule-action',label:t('pane.action'),value:e.action,options:ACTIONS.map(value=>({value,label:actionLabel(value)})),
       onSelect:value=>{e.action=value;redraw($);}}),
@@ -145,10 +146,10 @@ function rulesView($,h,ctx,state,settings){
         h.Text({dimColor:true,children:`${t(rule.source==='user'?'pane.group.custom':'pane.group.'+groupOf(rule))} · ${t('effect.'+rule.effect)}`}),
       ]}),
       h.Box({flexDirection:'row',gap:1,flexShrink:0,children:rule.source==='builtin'?[
-        iconButton(h,'toggle:'+rule.id,t(rule.enabled?'pane.toggle.on':'pane.toggle.off'),rule.enabled?'✓':'○',()=>mutate($,ctx,latest=>toggleBuiltin(latest,rule.id))),
+        iconButton(h,'toggle:'+rule.id,rule.enabled?'✓':'○',()=>mutate($,ctx,latest=>toggleBuiltin(latest,rule.id))),
       ]:[
-        iconButton(h,'edit:'+rule.id,t('pane.edit'),'✎',()=>change($,state,{editor:editorFor(rule),message:''})),
-        iconButton(h,'delete:'+rule.id,t('pane.remove'),'🗑︎',()=>change($,state,{confirm:{type:'delete',rule:{...rule}},message:''})),
+        iconButton(h,'edit:'+rule.id,'✎',()=>change($,state,{editor:editorFor(rule),message:''})),
+        iconButton(h,'delete:'+rule.id,'🗑︎',()=>change($,state,{confirm:{type:'delete',rule:{...rule}},message:''})),
       ]}),
     ]})),
     ...(visible.length?[]:[h.Text({dimColor:true,children:t('pane.empty')})]),
@@ -171,7 +172,7 @@ function paged($,h,state,id,rows,size=PAGE_SIZE){
   const page=Math.max(0,Math.min(state.pages[id] || 0,last));
   const start=page*size,end=Math.min(rows.length,start+size);
   const step=(name,icon,target)=>h.Box({width:4,alignItems:'center',children:target<0 || target>last?[]:[
-    iconButton(h,id+'-'+name,t('pane.'+name),icon,()=>{state.pages[id]=target;redraw($);}),
+    iconButton(h,id+'-'+name,icon,()=>{state.pages[id]=target;redraw($);}),
   ]});
   const controls=last>0?[h.Box({key:'pager-'+id,flexDirection:'row',alignItems:'center',justifyContent:'center',gap:1,children:[
     step('previous','‹',page-1),
@@ -179,6 +180,16 @@ function paged($,h,state,id,rows,size=PAGE_SIZE){
     step('next','›',page+1),
   ]})]:[];
   return {visible:rows.slice(start,end),controls};
+}
+
+function progressView($,h,ctx,state){
+  const kind=state.progressKind;
+  const {visible,controls}=paged($,h,state,'progress',progressItems(bandSnapshot(ctx),kind),12);
+  return h.Box({flexDirection:'column',gap:1,children:[
+    h.Text({bold:true,children:progressTitle(kind)}),
+    progressGraph(h,state.surface,kind,visible),
+    ...controls,
+  ]});
 }
 const uiSource=()=>({kind:'ui',origin:'ui',id:crypto.randomUUID()});
 function askConfirmation($,state,type,extra={}){change($,state,{confirm:{type,...extra},message:''});}
@@ -192,7 +203,7 @@ async function violationsView($,h,ctx,state,settings){
   if(detail){
     const record=records.find(record=>record.id===detail.id);
     return h.Box({flexDirection:'column',gap:1,children:[
-      iconButton(h,'back-violations',t('pane.back'),'←',()=>change($,state,{detail:null})),
+      iconButton(h,'back-violations','←',()=>change($,state,{detail:null})),
       h.Text({bold:true,children:record.who}),
       h.Text({children:`${t('sanction.'+record.sanction)} · -${record.points} · ${t('status.'+record.status)}`}),
       h.Text({children:record.ruleIds.map(id=>id.startsWith('user:')?id:t('rule.'+id)).join(', ')}),
@@ -277,7 +288,7 @@ async function translatePage($,state,reviews){
     const texts=reviews.flatMap(review=>[...review.findings.flatMap(finding=>[finding.claim,finding.evidence]),review.exemplar.why]);
     const added=await translateTexts($,texts,language);
     state.message=added?t('pane.translated',{count:added}):t('pane.translateNone');
-  }catch(error){state.message=errorText(error);}
+  }catch{state.message=t('pane.translationUnavailable');}
   finally{state.translating=false;redraw($);}
 }
 const shown=text=>translated(text,currentLanguage()) ?? text;
@@ -366,7 +377,7 @@ function reviewsView($,h,ctx,state,settings,data){
   const canTranslate=currentLanguage()!=='en' && visible.length>0;
   const detail=state.detail?.kind==='review'?data.reviews.find(review=>review.id===state.detail.id):null;
   if(detail)return h.Box({flexDirection:'column',gap:1,children:[
-    iconButton(h,'back-reviews',t('pane.back'),'←',()=>change($,state,{detail:null})),
+    iconButton(h,'back-reviews','←',()=>change($,state,{detail:null})),
     h.Text({bold:true,children:`${t('settings.details')} · ${detail.citizen?.kind==='main'?t('pane.agentKind.main'):detail.citizen?.name || 'agent'}`}),
     h.Text({dimColor:true,children:`${localTime(detail.at)} · ${detail.ref}`}),
     ...Object.entries(detail.scores).map(([dimension,score])=>h.Text({children:`${t('dimension.'+dimension)}: ${score===null?t('tbl.undetermined'):t('score.outOf5',{value:score})}`})),
@@ -391,8 +402,7 @@ function reviewsView($,h,ctx,state,settings,data){
     ...(noted?[h.Text({dimColor:true,children:t('pane.autoNoted',{count:noted})})]:[]),
     ...(state.autoRun?[h.Text({children:t('pane.autoRunning',state.autoRun)})]:waitingCount||canTranslate?[h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',children:[
       ...(waitingCount?[h.Button({key:'auto-review',label:t('pane.auto',{count:waitingCount}),onPress:()=>{void autoReview($,ctx,state,settings);}})]:[]),
-      ...(canTranslate?[h.Button({key:'translate-reviews',label:t(state.translating?'pane.translating':'pane.translate'),
-        children:['文 '+t(state.translating?'pane.translating':'pane.translateAction')],onPress:()=>{void translatePage($,state,visible);}})]:[]),
+      ...(canTranslate?[h.Button({key:'translate-reviews',label:'文 '+t(state.translating?'pane.translating':'pane.translateAction'),onPress:()=>{void translatePage($,state,visible);}})]:[]),
     ]})]:[]),
     ...(waitingCount && !state.autoRun?[h.Text({dimColor:true,children:t('pane.autoHint',{model:settings.judgeModel ?? JUDGE_MODEL})})]:[]),
     h.Select({key:'review-filter',label:t('settings.filter'),value:state.reviewFilter,options:['pending','suggested','completed','all'].map(value=>({value,label:t('settings.'+value)})),onSelect:value=>{state.pages.reviews=0;change($,state,{reviewFilter:value,detail:null});}}),
@@ -439,7 +449,7 @@ function historyView($,h,ctx,state,data){
     onSelect:value=>{state.pages.history=0;change($,state,{historySession:value,detail:null});}});
   const agent=state.detail?.kind==='run'?timeline?.agents.find(run=>run.agentId===state.detail.id):null;
   if(agent)return h.Box({flexDirection:'column',gap:1,children:[
-    iconButton(h,'back-history',t('pane.back'),'←',()=>change($,state,{detail:null})),
+    iconButton(h,'back-history','←',()=>change($,state,{detail:null})),
     timelineRow(h,state.surface,agent,{lanes:1,first:true,last:true,size:32}),
     h.Text({dimColor:true,children:`${localTime(agent.startedAt)}${agent.endedAt?' → '+localTime(agent.endedAt).slice(11):''} · ${agent.agentId}`}),
     h.Text({children:agent.tools.length?t('history.tools',{tools:agent.tools.map(item=>`${item.tool} ${item.count}`).join(' · ')}):t('history.noTools')}),
@@ -502,6 +512,7 @@ async function settingsView($,h,ctx,state,settings,failures){
 function focusOn(state,focus){
   if(focus==='jail')Object.assign(state,{tab:'violations',violationFilter:'active',pages:{...state.pages,violations:0}});
   if(focus==='review')Object.assign(state,{tab:'citizens',agentSection:'reviews',reviewFilter:'pending',pages:{...state.pages,reviews:0}});
+  if(focus?.kind==='progress')Object.assign(state,{tab:'progress',progressKind:focus.key,pages:{...state.pages,progress:0}});
   // A run pressed in the band: its session's timeline, at that run.
   if(focus?.kind==='run')Object.assign(state,{tab:'citizens',agentSection:'history',historySession:focus.sessionId,detail:focus.agentId?{kind:'run',id:focus.agentId}:null});
 }
@@ -559,6 +570,7 @@ export function registerRulesPane(on,failures=()=>0){
     try{
       if(state.pending)body=h.Text({children:t('settings.working')});
       else if(state.confirm)body=confirmationView($,h,ctx,state);
+      else if(state.tab==='progress')body=progressView($,h,ctx,state);
       else if(settings)body=state.tab==='rules'?rulesView($,h,ctx,state,settings):state.tab==='violations'?await violationsView($,h,ctx,state,settings):state.tab==='citizens'?await citizensView($,h,ctx,state,settings):await settingsView($,h,ctx,state,settings,failures);
     }catch(error){body=h.Text({children:errorText(error)});}
     return h.Box({flexDirection:'column',gap:1,children:[
@@ -567,12 +579,12 @@ export function registerRulesPane(on,failures=()=>0){
       ...(settings && !state.pending && !state.confirm && !state.editor?[overviewView($,h,ctx,state,settings,e.surface)].filter(Boolean):[]),
       ...(!state.pending?[h.Box({key:'pane-menu',flexDirection:'row',gap:1,flexWrap:'wrap',children:Object.entries(MENU_ICONS).map(([tab,icon])=>{
         const label=t('pane.tab.'+tab);
-        return h.Button({key:'tab-'+tab,label,children:[icon+' '+label],...(state.tab===tab?{variant:'primary'}:{}),
+        return h.Button({key:'tab-'+tab,label:icon+' '+label,...(state.tab===tab?{variant:'primary'}:{}),
           onPress:()=>change($,state,{tab,editor:null,confirm:null,detail:null,data:null,message:''})});
       })})]:[]),
       body,
       h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',justifyContent:'space-between',children:[h.Text({dimColor:!state.message,children:state.message || t('pane.noPending')}),
-        ...(!state.pending?[iconButton(h,'refresh-rules',t('pane.refresh'),'↻',()=>{void refreshStatus($,ctx);change($,state,{data:null,diagnostics:null});})]:[])]}),
+        ...(!state.pending?[iconButton(h,'refresh-rules','↻',()=>{void refreshStatus($,ctx);change($,state,{data:null,diagnostics:null});})]:[])]}),
     ]});
   });
 }

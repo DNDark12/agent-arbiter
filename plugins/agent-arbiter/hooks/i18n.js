@@ -245,7 +245,9 @@ Object.assign(TEXT.en, {
  'band.open':'Open',
  'band.chipReview':'{count} to review','band.chipJail':'{count} detained',
  'band.reviewStat':'{decided}/{total} decided',
- 'band.chipAsks':'{count} asked','band.asksFigure':'{asked} approval asks this session, {allowed} allowed','band.asksStat':'{allowed} allowed','band.chipJudge':'{count}/{cap} judged','band.judgeMeterLabel':'Judge reviews','band.judgeFigure':'{count} of {cap} judge reviews used today',
+ 'band.chipAsks':'{count} asked','band.asksFigure':'{asked} approval asks this session, {allowed} allowed','band.asksStat':'{allowed} allowed','band.chipJudge':'{count}/{cap} judged','band.judgeFigure':'{count} of {cap} judge reviews used today',
+ 'band.progress.reviews':'Reviews','band.progress.judge':'Judge reviews','band.progress.asks':'Approvals','band.progress.jail':'Detentions',
+ 'band.showDetails':'Show all','band.detailEmpty':'No entries for this progress.',
  'overview.state':'Status','overview.waitingPill':'{count} waiting on you','overview.calmPill':'All clear','overview.waiting':'Waiting on you','overview.decided':'Decided, 14 days','overview.detained':'Detained','overview.judge':'Judge today','overview.violations':'Violations in effect','overview.mode':'Mode','overview.none':'none','overview.chipReviews':'Reviews {count}','overview.chipJail':'Detained {count}','overview.calm':'Nothing waits on you.','overview.calmHint':'Approvals, review decisions and detained agents show up here.',
  'toast.detained':'Agent Arbiter · {count} agent(s) detained. Open the band to see why.','toast.pending':'Agent Arbiter · {count} review decision(s) waiting.',
  'note.approved':'allowed','note.session-allow':'allowed for the session','note.refused':'you refused','note.unanswered':'no answer, not run','note.denied-by-rule':'denied by rule','note.retry-after-refusal':'denied: retried after a refusal','note.other':'checked','note.custom':'custom rule',
@@ -290,7 +292,9 @@ Object.assign(TEXT.vi, {
  'band.open':'Mở',
  'band.chipReview':'{count} chờ duyệt','band.chipJail':'{count} bị giam',
  'band.reviewStat':'{decided}/{total} đã xử lý',
- 'band.chipAsks':'{count} lần hỏi','band.asksFigure':'{asked} lần hỏi duyệt trong phiên, {allowed} lần cho phép','band.asksStat':'{allowed} cho phép','band.chipJudge':'{count}/{cap} lượt chấm','band.judgeMeterLabel':'Lượt chấm','band.judgeFigure':'Đã dùng {count}/{cap} lượt chấm hôm nay',
+ 'band.chipAsks':'{count} lần hỏi','band.asksFigure':'{asked} lần hỏi duyệt trong phiên, {allowed} lần cho phép','band.asksStat':'{allowed} cho phép','band.chipJudge':'{count}/{cap} lượt chấm','band.judgeFigure':'Đã dùng {count}/{cap} lượt chấm hôm nay',
+ 'band.progress.reviews':'Đánh giá','band.progress.judge':'Lượt chấm','band.progress.asks':'Phê duyệt','band.progress.jail':'Tạm giam',
+ 'band.showDetails':'Xem tất cả','band.detailEmpty':'Chưa có mục nào.',
  'overview.state':'Trạng thái','overview.waitingPill':'{count} chờ bạn','overview.calmPill':'Ổn định','overview.waiting':'Chờ bạn','overview.decided':'Đã xử lý, 14 ngày','overview.detained':'Bị giam','overview.judge':'Thẩm phán hôm nay','overview.violations':'Vi phạm hiệu lực','overview.mode':'Chế độ','overview.none':'không','overview.chipReviews':'Đánh giá {count}','overview.chipJail':'Bị giam {count}','overview.calm':'Không có gì chờ bạn.','overview.calmHint':'Yêu cầu duyệt, đánh giá cần quyết định và agent bị giam sẽ hiện ở đây.',
  'toast.detained':'Agent Arbiter · {count} agent bị giam. Mở band để xem lý do.','toast.pending':'Agent Arbiter · {count} đánh giá chờ bạn quyết định.',
  'note.approved':'đã cho phép','note.session-allow':'cho phép cả phiên','note.refused':'bạn từ chối','note.unanswered':'không trả lời, không chạy','note.denied-by-rule':'luật chặn','note.retry-after-refusal':'chặn vì thử lại sau khi bị từ chối','note.other':'đã kiểm tra','note.custom':'luật tuỳ chỉnh',
@@ -463,6 +467,7 @@ Object.assign(TEXT.en, {
  'pane.autoHint':'Auto review asks the judge model ({model}) to check each waiting finding against the files of its turn, one call per finding, and records the answer as yours, marked automatic. What it cannot tell stays for you.',
  'pane.autoNote':'Auto review: {why}',
  'pane.translate':'Translate this page','pane.translateAction':'Translate','pane.translating':'Translating…','pane.translated':'Translated {count} sentence(s).','pane.translateNone':'Nothing new to translate.',
+ 'pane.translationUnavailable':'The model did not return a usable translation. You can try again.',
 });
 Object.assign(TEXT.vi, {
  'settings.judgeModel':'Model chấm điểm','settings.judgeModel.haiku':'Haiku: nhanh và rẻ nhất','settings.judgeModel.sonnet':'Sonnet: cân bằng','settings.judgeModel.opus':'Opus: kỹ nhất, tốn nhất',
@@ -472,14 +477,14 @@ Object.assign(TEXT.vi, {
  'pane.autoHint':'Tự duyệt nhờ model chấm ({model}) đối chiếu từng lỗi đang chờ với các file của lượt đó, mỗi lỗi một lần gọi, rồi ghi câu trả lời thay bạn kèm dấu tự động. Lỗi nào model không chắc thì vẫn để bạn xem.',
  'pane.autoNote':'Tự duyệt: {why}',
  'pane.translate':'Dịch trang này sang tiếng Việt','pane.translateAction':'Dịch','pane.translating':'Đang dịch…','pane.translated':'Đã dịch {count} câu.','pane.translateNone':'Không có câu mới cần dịch.',
+ 'pane.translationUnavailable':'Model chưa trả bản dịch hợp lệ. Bạn có thể thử lại.',
 });
 
 // Session history: the main agent's thread and the agents it sent.
 Object.assign(TEXT.en, {
  'settings.section.history':'Session history','history.session':'Session','history.thisSession':'This session',
  'history.sessionFigure':'{agents} agent(s) · {calls} call(s)','history.empty':'No session has been recorded yet.',
- 'history.none':'This session has not sent any agent.','history.bandTitle':'Agents in this session · {count}',
- 'history.more':'+{count} earlier · open the panel to see all',
+ 'history.none':'This session has not sent any agent.',
  'history.status.running':'running','history.status.done':'done','history.status.stopped':'stopped','history.status.unfinished':'no end recorded','history.status.detained':'detained',
  'history.calls':'{count} call(s)','history.turns':'{count} turn(s)','history.violations':'{count} violation(s)','history.quality':'judged {value}/100',
  'history.tools':'Tools used: {tools}','history.noTools':'No tool call recorded.','history.files':'{count} file(s) touched',
@@ -488,8 +493,7 @@ Object.assign(TEXT.en, {
 Object.assign(TEXT.vi, {
  'settings.section.history':'Lịch sử phiên','history.session':'Phiên','history.thisSession':'Phiên này',
  'history.sessionFigure':'{agents} agent · {calls} lệnh','history.empty':'Chưa ghi nhận phiên nào.',
- 'history.none':'Phiên này chưa giao agent nào.','history.bandTitle':'Agent trong phiên này · {count}',
- 'history.more':'+{count} agent trước đó · mở bảng điều khiển để xem hết',
+ 'history.none':'Phiên này chưa giao agent nào.',
  'history.status.running':'đang chạy','history.status.done':'xong','history.status.stopped':'bị dừng','history.status.unfinished':'không rõ lúc kết thúc','history.status.detained':'bị giam',
  'history.calls':'{count} lệnh','history.turns':'{count} lượt','history.violations':'{count} vi phạm','history.quality':'chấm {value}/100',
  'history.tools':'Lệnh đã dùng: {tools}','history.noTools':'Không ghi nhận lệnh nào.','history.files':'Đụng tới {count} file',

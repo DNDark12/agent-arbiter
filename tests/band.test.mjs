@@ -4,6 +4,7 @@ import {sprite,ROLES,ROLE_EMOJI} from '../plugins/agent-arbiter/hooks/sprites.js
 import {barText,barSvg,roleIcon,fraction,pillTrackSvg,pillWidth} from '../plugins/agent-arbiter/hooks/visuals.js';
 import {bandRows,drawRow} from '../plugins/agent-arbiter/hooks/band.js';
 import {statusCounts} from '../plugins/agent-arbiter/hooks/status.js';
+import {progressItems} from '../plugins/agent-arbiter/hooks/progress-view.js';
 import {noteDecision,decisionNote,forgetNotes} from '../plugins/agent-arbiter/hooks/notes.js';
 import {setLanguage} from '../plugins/agent-arbiter/hooks/i18n.js';
 import {ROLES as AGENT_ROLES} from '../plugins/agent-arbiter/hooks/roles.js';
@@ -61,6 +62,12 @@ test('the band bars: what waits first and decides whether it shows; activity joi
   assert.equal(find(full,'Svg').length,2);
   const meter=find(full,'Svg')[1].props.source;
   assert.ok(meter.includes('3 chờ duyệt · 6/9 đã xử lý'),'the figure rides inside the pill');
+  assert.match(meter,/<rect width="\d+" height="20" rx="10" fill="#F7B74E" fill-opacity="0.16"/);
+  assert.match(meter,/<pattern id="pixel-grid"[^>]*width="3"[^>]*>[\s\S]*?<rect width="2" height="2"/);
+  assert.match(meter,/<animateTransform[^>]*type="translate"[^>]*calcMode="discrete"/);
+  assert.match(meter,/<g class="mv" clip-path="url\(#filled\)"/);
+  const durations=[...meter.matchAll(/<animate[^>]*dur="([\d.]+)s"/g)].map(match=>match[1]);
+  assert.ok(new Set(durations).size>1,'sparkles have independent timing');
   assert.match(meter,/<animate .*attributeName="opacity"/,'groups pulse in their own hue');
   assert.doesNotMatch(meter,/#FFFFFF/i,'no white flashes');
   assert.match(meter,/prefers-reduced-motion: reduce\) \{ \.mv \{ display: none/,'reduced motion hides the glints');
@@ -132,13 +139,27 @@ test('the bar fills its row and the native click target covers the artwork',()=>
   assert.ok(wide>narrow+400,'a wider row gets a longer track, not a fixed stub');
   const drawn=drawRow(table(),'desktop',row,100,undefined,true,click);
   const [button]=find(drawn,'Button');
-  assert.equal(button.props.label,row.alt);
+  assert.equal(button.props.label,'⠀');
   const target=find(drawn,'Box').find(box=>box.props.key==='band-hit-reviews');
   assert.deepEqual([target.props.position,target.props.left,target.props.right,target.props.top,target.props.bottom],['absolute',0,0,0,0]);
-  assert.ok(texts(drawn).includes(' 3 to review '));
+  assert.ok(texts(drawn).includes(' Reviews '));
   assert.equal(find(button,'Svg').length,0);
   const [,track]=find(drawn,'Svg');
   assert.match(track.props.source,/<text[^>]*>6\/9<\/text>/);
   assert.match(track.props.source,/<animate /);
   button.props.onPress();assert.equal(pressed,1);
+});
+
+test('review items branch under their agent and judge usage uses the same review window as the band',()=>{
+  setLanguage('en');
+  const now=2*86400000;
+  const recentReviews=[
+    {id:'older',at:0,agentId:'a',citizen:{name:'reviewer'},quality:80,exemplar:{state:'none'},
+      findings:[{ref:'old',claim:'Old decision',state:'confirmed'}]},
+    {id:'latest',at:now-10,agentId:null,quality:70,exemplar:{state:'none'},
+      findings:[{ref:'open',claim:'Needs a decision',state:'open'},{ref:'noted',claim:'Minor note',state:'noted'}]},
+  ];
+  assert.deepEqual(progressItems({recentReviews},'reviews',now).map(item=>[item.key,Boolean(item.branch)]),
+    [['latest',false],['open',true],['older',false],['old',true]]);
+  assert.deepEqual(progressItems({recentReviews},'judge',now).map(item=>item.key),['latest']);
 });
