@@ -14,7 +14,7 @@ import { citizen, bindCitizen } from './citizens.js';
 import { transcriptCoverage, gitSnapshot, gitHead } from './forensics.js';
 import { rememberCitizen, takeSpawnNote, handbackNoteFor, replacementAllowed, rejectReplacement, beginReplacement, endReplacement } from './discipline.js';
 import { setLanguage, t } from './i18n.js';
-import { refreshStatus, statusCounts } from './status.js';
+import { refreshStatus, setSounds, statusCounts } from './status.js';
 import { disciplineState } from './discipline.js';
 import { reduceReviews } from './judge.js';
 import { rememberBrief, rememberMainTurn, mainTurnId, noteActivity, judgeRun } from './judge.js';
@@ -72,6 +72,7 @@ async function summary($, cleanup = false) {
 export const register = (on, options = {}) => {
   setMasterEnabled(options.enabled);
   setLanguage(options.language);
+  setSounds(options.sounds);
   registerRulesPane(on,()=>failures);
   registerBand(on);
   on('session.start', async ($, e, next) => {

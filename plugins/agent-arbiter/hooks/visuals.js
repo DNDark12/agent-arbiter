@@ -41,76 +41,129 @@ export function barText(bar, cells) {
   return '█'.repeat(filled) + partial + '░'.repeat(count - filled - partial.length);
 }
 
-// The band's meter, after the progress tracker people liked: a soft rounded
-// track, square dots that grow denser and brighter toward the fill's end, and a
-// solid pill there that names what waits (and the figure, when it fits). With
-// nothing done yet the pill opens the track. A count with no known total (a
-// detention) is the pill alone. A stepped wave moves through a dense pixel
-// grid while scattered pixels flash independently in the same hue as the track.
+// Square particles drift as a tiled field. Each layer comes into view
+// farther along the fill, so more dots are present near the badge.
 const PILL_HEIGHT = 20;
-const DOT = 2, PITCH = 3, PULSE_GROUPS = 16, STREAM_COLUMNS = 61;
-const escapeText = text => String(text).replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]);
-// Close enough to the system font at 11.5px semibold to size the pill.
+const DOT = 2, PITCH = 3, PULSE_GROUPS = 14, STREAM_COLUMNS = 127, TICK = 60;
+const escapeText = text => String(text).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 export const textWidth = text => [...String(text)].reduce((sum, char) => sum + (/[0-9]/.test(char) ? 6.9 : char === ' ' ? 3.3 : /[A-ZĐ]/.test(char) ? 7.6 : 6.4), 0);
 export const pillWidth = label => Math.round(textWidth(label) + 22);
-// The same dots every time, from a hash of their place.
+
 const hash = n => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
-const streamSteps = Array.from({ length: STREAM_COLUMNS + 1 }, (_, index) => `${-index * PITCH} 0`).join(';');
-const streamPattern = Array.from({ length: STREAM_COLUMNS }, (_, index) => {
-  const level = Math.round((hash(index + 41) + hash((index + 1) % STREAM_COLUMNS + 41) +
-    hash((index + 2) % STREAM_COLUMNS + 41)) * 2) / 6;
-  return `<rect x="${index * PITCH}" width="${PITCH}" height="${PILL_HEIGHT}" fill-opacity="${(.14 + level * .51).toFixed(2)}"/>`;
+const glintTracks = Array.from({ length: PULSE_GROUPS }, (_, index) => {
+  const ticks = 38 + Math.floor(hash(index * 193 + 19) * 29);
+  const duration = ticks * TICK;
+  const phase = Math.floor(hash(index * 127 + 11) * ticks) * TICK;
+  const levels = [0, .17, .38, .72];
+  const frames = [];
+  let level = 0;
+  for (let tick = 0; tick < ticks; ) {
+    frames.push(`${(tick * 100 / ticks).toFixed(2)}%{opacity:${levels[level]}}`);
+    const random = hash(index * 311 + tick * 73);
+    tick += 1 + Math.floor(hash(index * 719 + tick * 83) * 4);
+    level = random < .34 ? 0 : random < .68 ? Math.min(3, level + 1) : Math.max(0, level - 1);
+  }
+  return { name: 'flicker-' + index, duration, phase, frames: frames.join('') };
+});
+
+function highlight(fill) {
+  if (!/^#[0-9a-f]{6}$/i.test(fill)) return fill;
+  const channels = fill.slice(1).match(/../g).map(value => {
+    const channel = Number.parseInt(value, 16);
+    return Math.round(channel + (255 - channel) * .28);
+  });
+  return `rgb(${channels.join(',')})`;
+}
+
+const DENSITY = [[0,.21],[.15,.43],[.35,.67],[.56,.91]];
+const DISTANCE = STREAM_COLUMNS * PITCH;
+const DRIFT = [[0,0],[22,21],[45,60],[70,88],[100,STREAM_COLUMNS]];
+const driftKeys = DRIFT.map(([percent, column], index) => {
+  const next = DRIFT[index + 1];
+  const timing = next ? `animation-timing-function:steps(${next[1]-column});` : '';
+  return `${percent}%{transform:translateX(${-column*PITCH}px);${timing}}`;
 }).join('');
 
-// The stationary grid masks a scrolling exposure pattern. Sparse flashes use
-// their own periods, so the bright pixels do not form fixed blinking stripes.
-function pixelStream(fill, end, moving) {
-  if (end < DOT + 2) return '';
-  const dots = `<pattern id="pixel-grid" width="${PITCH}" height="${PITCH}" y="1" patternUnits="userSpaceOnUse"><rect width="${DOT}" height="${DOT}" fill="${fill}"/></pattern>`;
-  const gradient = `<linearGradient id="pixel-fade"><stop stop-color="#fff" stop-opacity=".3"/><stop offset=".78" stop-color="#fff"/></linearGradient>`;
-  const fade = `<mask id="pixel-fade-mask"><rect width="${end}" height="${PILL_HEIGHT}" fill="url(#pixel-fade)"/></mask>`;
-  const grid = `<rect width="${end}" height="${PILL_HEIGHT}" fill="url(#pixel-grid)"/>`;
-  if (!moving) return `<defs>${dots}${gradient}${fade}</defs><g mask="url(#pixel-fade-mask)" opacity=".62">${grid}</g>`;
-
-  const exposure = `<pattern id="pixel-exposure" width="${STREAM_COLUMNS * PITCH}" height="${PILL_HEIGHT}" patternUnits="userSpaceOnUse" fill="#fff">${streamPattern}</pattern>`;
-  const wave = `<mask id="pixel-wave" maskUnits="userSpaceOnUse" x="0" y="0" width="${end}" height="${PILL_HEIGHT}"><rect width="${end + STREAM_COLUMNS * PITCH}" height="${PILL_HEIGHT}" fill="url(#pixel-exposure)"><animateTransform attributeName="transform" type="translate" calcMode="discrete" values="${streamSteps}" dur="3.8s" repeatCount="indefinite"/></rect></mask>`;
-  const flashes = Array.from({ length: PULSE_GROUPS }, () => []);
-  for (let x = 0; x + DOT <= end; x += PITCH) {
-    const density = .32 + .58 * (x / end);
-    for (let y = 1; y + DOT <= PILL_HEIGHT; y += PITCH) {
-      if (hash(x * 41 + y * 79) >= density) continue;
-      flashes[Math.floor(hash(x * 97 + y * 199) * PULSE_GROUPS)].push(`M${x} ${y}h${DOT}v${DOT}h-${DOT}z`);
+const particleTiles = (() => {
+  const layers = DENSITY.map(() => ({
+    grains: [[], []], glints: Array.from({ length: PULSE_GROUPS }, () => []),
+  }));
+  for (let column = 0; column < STREAM_COLUMNS; column++) {
+    // Neighbouring columns share some noise, producing groups and gaps.
+    const band = (hash(column + 97) + hash((column + 1) % STREAM_COLUMNS + 97) +
+      hash((column + 2) % STREAM_COLUMNS + 97)) / 3;
+    for (let y = 0; y + DOT <= PILL_HEIGHT; y += PITCH) {
+      const position = column * 41 + y * 79;
+      if (hash(position + 9) > .46 + band * .50) continue;
+      const layer = layers[Math.floor(hash(position + 2731) * layers.length)];
+      const square = `M${column*PITCH} ${y}h${DOT}v${DOT}h-${DOT}z`;
+      layer.grains[hash(position + 137) > .62 ? 1 : 0].push(square);
+      if (hash(position + 1327) < .27) {
+        layer.glints[Math.floor(hash(position + 7223) * PULSE_GROUPS)].push(square);
+      }
     }
   }
-  const glints = flashes.map((group, index) => {
-    if (!group.length) return '';
-    const duration = (1.3 + hash(index * 193 + 19) * 2.1).toFixed(2);
-    const begin = (-Number(duration) * hash(index * 127 + 11)).toFixed(2);
-    return `<path d="${group.join('')}" opacity="0"><animate attributeName="opacity" calcMode="discrete" values="0;.5;1;.28;0;0" keyTimes="0;.09;.14;.2;.27;1" dur="${duration}s" begin="${begin}s" repeatCount="indefinite"/></path>`;
+  return layers.map(({ grains, glints }) => ({
+    base: grains.map((group, index) => `<path opacity="${index ? .57 : .32}" d="${group.join('')}"/>`).join(''),
+    glints: glints.map((group, index) => group.length ?
+      `<path class="glint flicker-${index}" opacity="0" d="${group.join('')}"/>` : '').join(''),
+  }));
+})();
+
+function pixelMask(id, end, stops) {
+  const gradient = stops.map(([at, opacity]) => `<stop offset="${at}" stop-color="#fff" stop-opacity="${opacity}"/>`).join('');
+  return `<linearGradient id="${id}">${gradient}</linearGradient><mask id="${id}-mask"><rect width="${end}" height="${PILL_HEIGHT}" fill="url(#${id})"/></mask>`;
+}
+
+function pixelStream(fill, start, end, moving, now) {
+  if (end < DOT + 2) return '';
+  const ink = highlight(fill), shoulder = start / end, tail = start < end ? 0 : 1;
+  const definitions = [`<clipPath id="filled"><rect width="${end}" height="${PILL_HEIGHT}"/></clipPath>`];
+  const layers = particleTiles.map(({ base, glints }, index) => {
+    const [from, full] = DENSITY[index];
+    const id = 'particles-' + index, mask = 'density-' + index;
+    definitions.push(pixelMask(mask, end, [[from * shoulder,0],[full * shoulder,1],[shoulder,1],[1,tail]]),
+      `<pattern id="${id}" width="${DISTANCE}" height="${PILL_HEIGHT}" patternUnits="userSpaceOnUse" fill="${ink}">${base}${moving ? glints : ''}</pattern>`);
+    return `<g mask="url(#${mask}-mask)"><rect class="stream" width="${end+DISTANCE}" height="${PILL_HEIGHT}" fill="url(#${id})"/></g>`;
   }).join('');
-  return `<defs>${dots}${gradient}${fade}${exposure}${wave}<clipPath id="filled"><rect width="${end}" height="${PILL_HEIGHT}"/></clipPath></defs>` +
-    '<style>.rest { display: none } @media (prefers-reduced-motion: reduce) { .mv { display: none } .rest { display: inline } }</style>' +
-    `<g class="mv" clip-path="url(#filled)" mask="url(#pixel-fade-mask)"><g mask="url(#pixel-wave)">${grid}</g><g fill="${fill}">${glints}</g></g>` +
-    `<g class="rest" mask="url(#pixel-fade-mask)" opacity=".62">${grid}</g>`;
+  let style = '';
+  if (moving) {
+    const cycle = STREAM_COLUMNS * TICK;
+    const drift = `.stream{animation:stream ${cycle/1000}s infinite;animation-delay:-${(now%cycle)/1000}s}@keyframes stream{${driftKeys}}`;
+    const pulses = glintTracks.map(({ name, duration, phase, frames }) =>
+      `.${name}{opacity:0;animation:${name} ${duration/1000}s step-end infinite;animation-delay:-${((now+phase)%duration)/1000}s}@keyframes ${name}{${frames}}`).join('');
+    style = `<style>${drift}${pulses}@media (prefers-reduced-motion: reduce){.stream{animation:none}.glint{display:none}}</style>`;
+  }
+  return `<defs>${definitions.join('')}</defs>${style}<g clip-path="url(#filled)">${layers}</g>`;
 }
 
 export function pillTrackSvg({ label, color, value = 0, max = null, width = 240, moving = true }) {
   const fill = paint(color), pill = label ? pillWidth(label) : 0, mid = PILL_HEIGHT / 2;
-  const pillShape = x => `<rect x="${x}" width="${pill}" height="${PILL_HEIGHT}" rx="${mid}" fill="${fill}"/>` +
-    `<text x="${x + pill / 2}" y="${mid + 4}" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-size="11.5" font-weight="650" fill="#1B1B1B" style="font-variant-numeric: tabular-nums">${escapeText(label)}</text>`;
+  const pillShape = `<rect width="${pill}" height="${PILL_HEIGHT}" rx="${mid}" fill="${fill}"/>`;
+  const pillText = x => `<text x="${x + pill / 2}" y="${mid + 4}" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-size="11.5" font-weight="650" fill="#1B1B1B" style="font-variant-numeric: tabular-nums">${escapeText(label)}</text>`;
   const svg = (w, body) => ({ width: w, height: PILL_HEIGHT, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${PILL_HEIGHT}" viewBox="0 0 ${w} ${PILL_HEIGHT}">${body}</svg>` });
-  if (!Number.isFinite(max) || max <= 0) return svg(pill, pillShape(0));
+  if (!Number.isFinite(max) || max <= 0) return svg(pill, pillShape + pillText(0));
   const track = Math.max(pill + 24, Math.round(width));
   const free = track - pill, share = fraction({ value, max });
-  // One decided item must show: a started bar leaves the start by a visible step, a part-done one stops short of the end.
+  // One decided item moves the pill even on a short track.
   const start = share > 0 ? Math.min(share < 1 ? free - Math.min(10, free / 2) : free, Math.max(Math.min(10, free / 2), Math.round(share * free))) : 0, end = start + pill;
-  const parts = [`<rect width="${track}" height="${PILL_HEIGHT}" rx="${mid}" fill="${fill}" fill-opacity="0.16"/>`];
-  if (start > 0) parts.push(pixelStream(fill, Math.max(0, start - 1), moving && start > 12));
+  const parts = [
+    `<defs><linearGradient id="track-tint"><stop offset="0" stop-color="${fill}" stop-opacity="0"/><stop offset=".14" stop-color="${fill}" stop-opacity=".01"/><stop offset="1" stop-color="${fill}" stop-opacity=".22"/></linearGradient></defs>`,
+    `<rect width="${track}" height="${PILL_HEIGHT}" fill="url(#track-tint)"/>`,
+  ];
+  if (start > 0) {
+    // The dots fade into a solid colour before reaching the first digit.
+    const shoulder = start + Math.min(mid, pill / 4);
+    if (pill) parts.push(
+      `<defs><linearGradient id="pill-blend" gradientUnits="userSpaceOnUse" x1="${Math.max(0,start-24)}" x2="${shoulder}"><stop stop-color="${fill}" stop-opacity="0"/><stop offset=".62" stop-color="${fill}" stop-opacity=".31"/><stop offset="1" stop-color="${fill}"/></linearGradient></defs>`,
+      `<path d="M0 0H${end-mid}a${mid} ${mid} 0 0 1 0 ${PILL_HEIGHT}H0Z" fill="url(#pill-blend)"/>`);
+    parts.push(pixelStream(fill,start,shoulder,moving && start>12,Date.now()));
+  }
   for (let i = 1; i < 4; i++) {
     const x = Math.round((i * track) / 4);
     if (x > end + 6 && x < track - 6) parts.push(`<rect x="${x}" y="6" width="1.5" height="8" rx="0.75" fill="#8F9BB1" opacity="0.55"/>`);
   }
-  if (pill) parts.push(pillShape(start));
+  if (pill) parts.push(start===0 ? pillShape + pillText(start) : pillText(start));
   return svg(track, parts.join(''));
 }
 
@@ -168,4 +221,30 @@ export function timelineGutterSvg({ lane = 0, lanes = 1, color, first = false, l
 export function timelineGutterText({ lane = 0, lanes = 1, last = false }) {
   const shown = Math.min(SHOWN_LANES, Math.max(1, lanes)), at = Math.min(lane, shown - 1);
   return (last && at === 0 ? '└' : '├') + '─'.repeat(1 + 2 * at) + ' ';
+}
+
+// One subagent as a thin strip under the band's bar: tinted by how its run
+// stands, a twinkle while it works, its name at the left and a figure at the
+// right. Drawn as one picture so the strip and its words never drift apart.
+export const STRIP_HEIGHT = 16;
+// Room around a strip inside its picture, so strips stand apart from the bar and from each other.
+const STRIP_PAD = 4;
+export function agentStripSvg({ name, figure = '', state = 'running', width = 300, first = false }) {
+  const color = paint(RUN_COLORS[state] ?? RUN_COLORS.done), w = Math.max(80, Math.round(width)), r = STRIP_HEIGHT / 2;
+  const top = first ? STRIP_PAD * 2 : STRIP_PAD, height = top + STRIP_HEIGHT + STRIP_PAD, mid = top + r;
+  const font = 'font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-size="11"';
+  const room = Math.max(0, Math.floor((w - 24 - (figure ? textWidth(figure) + 14 : 0)) / 6.4));
+  const shown = [...String(name)].length > room ? [...String(name)].slice(0, Math.max(1, room - 1)).join('') + '…' : String(name);
+  const twinkle = [];
+  if (state === 'running') for (let x = 22; x < w - 10; x += 6) {
+    const y = top + 4 + Math.floor(hash(x * 31) * 3) * 3;
+    if (hash(x * 17) > .45) continue;
+    twinkle.push(`<rect x="${x}" y="${y}" width="2" height="2" fill="${color}" opacity=".35" class="tw" style="animation-delay:-${(hash(x * 7) * 2.4).toFixed(2)}s"/>`);
+  }
+  const style = '<style>@media (prefers-reduced-motion: no-preference) { .tw { animation: tw 2.4s ease-in-out infinite } .dot { animation: tw 1.6s ease-in-out infinite } } @keyframes tw { 50% { opacity: .9 } } .nm { fill: #E6E6E6 } @media (prefers-color-scheme: light) { .nm { fill: #2A2A2A } }</style>';
+  return { width: w, height, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${height}" viewBox="0 0 ${w} ${height}">${style}` +
+    `<rect y="${top}" width="${w}" height="${STRIP_HEIGHT}" rx="${r}" fill="${color}" fill-opacity=".15"/>${twinkle.join('')}` +
+    `<circle cx="${r + 2}" cy="${mid}" r="3" fill="${color}"${state === 'running' ? ' class="dot"' : ''}/>` +
+    `<text x="${r + 10}" y="${mid + 4}" ${font} class="nm">${escapeText(shown)}</text>` +
+    (figure ? `<text x="${w - 8}" y="${mid + 4}" ${font} text-anchor="end" fill="${color}">${escapeText(figure)}</text>` : '') + '</svg>' };
 }

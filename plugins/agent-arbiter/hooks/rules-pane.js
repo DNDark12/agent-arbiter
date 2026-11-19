@@ -202,7 +202,7 @@ function progressView($,h,ctx,state){
   const {visible,controls}=paged($,h,state,'progress',progressItems(scoped,kind),12);
   return h.Box({flexDirection:'column',gap:1,children:[
     h.Text({bold:true,children:progressTitle(kind)}),
-    progressGraph(h,state.surface,kind,visible),
+    progressGraph(h,state.surface,kind,visible,state.columns),
     ...controls,
   ]});
 }

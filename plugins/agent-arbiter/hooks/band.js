@@ -5,10 +5,12 @@ import { observationContext } from './context.js';
 import { t } from './i18n.js';
 import { roleOf } from './roles.js';
 import { maybeOpenPinnedPane, openRulesPane } from './rules-pane.js';
-import { bandSnapshot, hideBand, refreshStatus, selectBandProgress, setBandExpanded, PULSE_MS } from './status.js';
+import { bandAgents, bandSnapshot, hideBand, refreshStatus, selectBandProgress, setBandExpanded, PULSE_MS } from './status.js';
 import { decisionNote, sessionAsks } from './notes.js';
 import { DAILY_TRIALS, decideFinding, reduceReviews } from './judge.js';
-import { COLORS, fraction, pillTrackSvg, pillWidth, roleIcon, svgOf } from './visuals.js';
+import { COLORS, RUN_COLORS, agentStripSvg, fraction, pillTrackSvg, pillWidth, roleIcon, svgOf } from './visuals.js';
+import { durationText } from './history.js';
+import { runState } from './history-view.js';
 import { bandDetail, bandDetailModel, progressTitle } from './progress-view.js';
 import { readProjectShared } from './events.js';
 import { releaseViolations } from './discipline.js';
@@ -83,6 +85,13 @@ export function bandRows(snapshot, now = Date.now(), asks = { asked: 0, allowed:
       stat: snapshot.decided ? t('band.reviewStat', { decided: snapshot.decided, total }) : '', value: snapshot.decided, max: total, role: 'review',
     });
   }
+  // This session's subagents, while one works or just ended: how many are done.
+  const agents = snapshot.agents ?? [];
+  if (bandAgents({ agents }, now).length) {
+    const done = agents.filter(agent => agent.status !== 'running').length;
+    rows.push({ key: 'agents', waiting: false, live: true, color: COLORS.clean, pill: t('band.chipAgents', { done, total: agents.length }),
+      alt: t('band.agentsFigure', { done, total: agents.length }), stat: '', value: done, max: agents.length, role: 'main' });
+  }
   if (asks.asked) rows.push({
     key: 'asks', waiting: false, color: COLORS.quality, pill: t('band.chipAsks', { count: asks.asked }),
     alt: t('band.asksFigure', { asked: asks.asked, allowed: asks.allowed }), stat: t('band.asksStat', { allowed: asks.allowed }),
@@ -112,9 +121,11 @@ function bandLabel(row, free, small) {
 export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, labelColumns = null) {
   const Svg = svgOf(h, surface), free = columns - 4 - (tail || labelColumns ? BUTTON_COLUMNS : 0);
   const spaceForTrack = label => row.max ? Math.min(MAX_TRACK_COLUMNS, free - (labelColumns ?? columnsOf(label)) - 1) : 0;
+  // Desktop cells are wider than the terminal's: size the track to the real row.
+  const trackPixels = cells => cells * (surface === 'desktop' ? 8.5 : 7.5);
   const meterLabel = progressTitle(row.key);
   const ratio = onPress && row.max ? `${row.value}/${row.max}` : '';
-  const badge = Svg && ratio && spaceForTrack(meterLabel) * 7.5 >= pillWidth(ratio) + 24 ? ratio : '';
+  const badge = Svg && ratio && trackPixels(spaceForTrack(meterLabel)) >= pillWidth(ratio) + 24 ? ratio : '';
   const label = ratio ? (badge ? meterLabel : `${meterLabel} · ${ratio}`) : bandLabel(row, free, small);
   const trackColumns = spaceForTrack(label);
   const lead = roleIcon(h, surface, row.role, 18, row.detained ? { detained: true, pulse: row.pulse } : { animate: row.waiting }, row.alt);
@@ -124,7 +135,7 @@ export function drawRow(h, surface, row, columns, tail, small = false, onPress =
     if (onPress) content.push(labelColumns ? h.Box({ key: 'label-' + row.key, width: labelColumns, flexShrink: 0, children: [labelText] }) : labelText);
     if (!onPress || trackColumns >= 4) {
       const trackLabel = onPress ? badge : label;
-      const width = onPress ? trackColumns * 7.5 : Math.max(pillWidth(label) + 24, trackColumns * 7.5);
+      const width = onPress ? trackPixels(trackColumns) : Math.max(pillWidth(label) + 24, trackPixels(trackColumns));
       const drawn = pillTrackSvg({ label: trackLabel, color: row.color, value: row.value, max: row.max, width });
       content.push(Svg({ source: drawn.source, alt: row.alt, width: drawn.width, height: drawn.height,
         ...(row.value > 0 && row.max > 0 ? { isInteractive: true } : {}) }));
@@ -156,6 +167,48 @@ export function drawRow(h, surface, row, columns, tail, small = false, onPress =
   ] });
 }
 
+let ticker = null;
+function tick($, on) {
+  if (on === Boolean(ticker)) return;
+  try {
+    if (on) ticker = $.clock.every(5000, () => { try { $.ui.invalidate('ui.render'); } catch { /* Next frame. */ } });
+    else { ticker?.cancel?.(); ticker = null; }
+  } catch { ticker = null; }
+}
+
+// The session's subagents, one thin strip each under the bars: the newest few,
+// and how many more. Pressing one opens its run in the panel.
+const MAX_STRIPS = 6;
+const shortModel = model => typeof model === 'string' ? model.replace(/^claude-/, '').replace(/-\d{8}$/, '') : '';
+function stripFigure(agent, now) {
+  if (agent.detained) return t('history.status.detained');
+  const time = durationText(agent.durationMs ?? (agent.status === 'running' ? now - agent.startedAt : null));
+  return [t('history.calls', { count: agent.calls }), time,
+    agent.quality !== null && agent.quality !== undefined ? t('score.outOf100', { value: agent.quality }) : agent.status === 'running' ? '' : null,
+    agent.violations?.length ? t('history.violations', { count: agent.violations.length }) : ''].filter(Boolean).join(' · ');
+}
+export function agentStrips(h, surface, agents, columns, room, onOpen, now = Date.now()) {
+  if (!agents?.length || room < 1) return [];
+  const Svg = svgOf(h, surface), fit = Math.min(MAX_STRIPS, agents.length > room ? room - 1 : room);
+  const shown = fit > 0 ? agents.slice(-fit) : [], hidden = agents.length - shown.length;
+  const rows = shown.map((agent, index) => {
+    const state = runState(agent), name = [agent.name, shortModel(agent.model)].filter(Boolean).join(' · ');
+    const figure = stripFigure(agent, now);
+    const label = `${name} · ${figure}`, onPress = () => onOpen(agent), key = 'strip:' + agent.agentId;
+    if (!Svg) return h.Button({ key, plain: true, label, onPress, children: [
+      h.Text({ color: RUN_COLORS[state] ?? RUN_COLORS.done, children: state === 'running' ? '◉ ' : '● ' }),
+      h.Text({ children: name + ' ' }), h.Text({ dimColor: true, children: figure })] });
+    const drawn = agentStripSvg({ name, figure, state, width: Math.min(900, (columns - 4) * 7.5), first: index === 0 });
+    // The picture is the strip; a clear button over it takes the press.
+    return h.Box({ key: 'strip-row:' + agent.agentId, position: 'relative', children: [
+      Svg({ source: drawn.source, alt: label, width: drawn.width, height: drawn.height }),
+      h.Box({ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, children: [h.Button({ key, plain: true, label: '⠀', onPress })] }),
+    ] });
+  });
+  if (hidden > 0) rows.push(h.Button({ key: 'strip-more', plain: true, dimColor: true, label: t('band.moreAgents', { count: hidden }), onPress: () => onOpen(null) }));
+  return [h.Box({ key: 'agent-strips', flexDirection: 'column', paddingLeft: 3, children: rows })];
+}
+
 const outcomeText = outcome => t('note.' + (['approved', 'session-allow', 'refused', 'unanswered', 'denied-by-rule', 'retry-after-refusal'].includes(outcome) ? outcome : 'other'));
 const ruleName = id => id.startsWith('user:') ? t('note.custom') : t('rule.' + id);
 
@@ -177,8 +230,12 @@ export function registerBand(on) {
     if (!snapshot) { void refreshStatus($, ctx); return next(e); }
     if (snapshot.hidden) return next(e);
     const asks = sessionAsks(), rows = bandRows(snapshot, Date.now(), asks);
-    // Shown only while something waits; the activity bars ride along when open.
-    if (!rows.some(row => row.waiting)) return next(e);
+    const agents = snapshot.agents ?? [];
+    const openRun = agent => void openRulesPane($, ctx, 'citizens', { kind: 'run', sessionId: ctx.sessionId, agentId: agent?.agentId ?? null }).catch(() => {});
+    // Shown while something waits or a subagent works; the activity bars ride along when open.
+    if (!rows.some(row => row.waiting || row.live)) { tick($, false); return next(e); }
+    // A working agent's time moves: redraw now and then while one runs.
+    tick($, agents.some(agent => agent.status === 'running'));
     const h = $.ui.resolve(e), expanded = snapshot.expanded === true;
     const selected = rows.find(row => row.key === snapshot.selected);
     const icon = (key, label, onPress) => h.Button({ key, label, plain: true, dimColor: true, onPress });
@@ -191,18 +248,38 @@ export function registerBand(on) {
     const gap = svgOf(h, e.surface) ? 1 : 0, fit = gap ? Math.floor((maxRows + 1) / 2) : maxRows;
     const columns = bodyColumns ?? 80, visible = selected ? [selected] : rows.slice(0, expanded ? Math.max(1, fit) : 1);
     const free = columns - 4 - BUTTON_COLUMNS;
-    const widestLabel = Math.max(...visible.map(row => columnsOf(row.max ? progressTitle(row.key) : row.pill)));
-    const labelColumns = gap && visible.length > 1 && free - widestLabel >= 14 ? widestLabel : null;
+    // Every bar keeps one length, open or closed: labels take the widest label's room.
+    const widestLabel = Math.max(...rows.map(row => columnsOf(row.max ? progressTitle(row.key) : row.pill)));
+    const labelColumns = gap && free - widestLabel >= 14 ? widestLabel : null;
     const bars = visible.map((row, index) => drawRow(h, e.surface, row, columns, index === 0 ? tail : undefined, !expanded,
       () => selectBandProgress($, ctx, row.key), labelColumns));
     const room = maxRows - 1;
     if (!selected || room < 1) return h.Box({ flexDirection: 'column', gap, children: bars });
+    if (selected.key === 'agents') return h.Box({ flexDirection: 'column', children: [...bars,
+      ...agentStrips(h, e.surface, agents, columns, room, openRun)] });
     const detail = bandDetail(h, selected.key, bandDetailModel(snapshot, selected.key), room, {
       busy, more: showDetails,
       decide: (ref, decision) => void decideInBand($, ctx, ref, decision),
       release: id => void releaseInBand($, ctx, id),
     });
     return h.Box({ flexDirection: 'column', children: [...bars, detail] });
+  });
+
+  // Beside the model in the footer: how much waits, seen even with the band closed.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const below = await next(e);
+    let ctx, snapshot;
+    try { ctx = await contextOf($); snapshot = bandSnapshot(ctx); } catch { return below; }
+    const count = snapshot ? snapshot.detained + snapshot.pending : 0;
+    if (!count) return below;
+    const h = $.ui.resolve(e);
+    const color = snapshot.detained ? COLORS.jail : COLORS.review;
+    const label = (snapshot.detained ? '⛓ ' : '⚖ ') + count;
+    return h.Box({ flexDirection: 'row', alignItems: 'center', gap: 1, children: [
+      h.Button({ key: 'arbiter-footer', plain: true, label: t('menu.waiting', { count }), onPress: () => void openAtWaiting($),
+        children: [h.Text({ color, children: label })] }),
+      ...(below ? [below] : []),
+    ] });
   });
 
   // The rule that stopped a call, and what came of it, under that call's row.

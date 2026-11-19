@@ -1,7 +1,7 @@
 {
   "name": "agent-arbiter",
   "displayName": "Agent Arbiter",
-  "version": "1.6.6",
+  "version": "1.6.7",
   "description": "Rules and accountability for Claude Code agents: approvals before risky actions, sanctions for rule breaks, agent scores, lessons and an advisory judge.",
   "author": {
     "name": "DNDark",
@@ -43,6 +43,12 @@
         "vi"
       ],
       "default": "auto"
+    },
+    "sounds": {
+      "type": "boolean",
+      "title": "Agent Arbiter sounds",
+      "description": "Play a short sound when an agent is detained or a review waits for you.",
+      "default": true
     }
   }
 }

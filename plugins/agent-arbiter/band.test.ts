@@ -22,16 +22,22 @@ test('a new detention shows in the band once, flashes, and Open goes to it witho
   await $.agent.spawn({ tool_use_id: 'band-spawn', prompt: 'Read the fixture.', description: 'Read the fixture.',
     subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'sonnet', background: true, fork: false })
 
-  // Nothing waits yet: the band draws nothing of its own, and counts in the background.
+  // Nothing waits yet: the band counts in the background, then shows only the agent at work.
   let band = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await band.find({ key: 'band-open' })).toBeUndefined()
   await band.unmount()
   for (let n = 0; n < 20; n++) await new Promise(resolve => setTimeout(resolve, 2))
+  band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await band.find({ key: 'band-toggle-jail' })).toBeUndefined()
+  expect((await band.findAll({ type: 'Svg' })).map(graphic => graphic.props.alt)).toContain('0 of 1 agents in this session done')
+  await band.unmount()
 
   expect((await $.tool.call({ tool: 'Write', agentId: 'j-child', tool_use_id: 'jw', file_path: '/fixture/secrets/key', content: 'x' })).deny).toContain('detained')
   await settle(() => toasts.length > 0)
   expect(toasts.at(-1)).toContain('1 agent(s) detained')
 
+  const footer = await $.ui.mount({ plugin: 'agent-arbiter', surface: 'desktop', component: 'SessionMode', props: { modes: [] } })
+  expect((await footer.find({ type: 'Text', text: '⛓ 1' }))?.text).toBe('⛓ 1')
+  await footer.unmount()
   band = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect((await band.findAll({ type: 'Svg' })).map(graphic => graphic.props.alt)).toContain('1 agent(s) detained')
   const flashing = (await band.findAll({ type: 'Svg' })).filter(graphic => graphic.props.isInteractive)

@@ -5,6 +5,7 @@ import { readProjectShared } from './events.js';
 import { reduceReviews, judgeUsage, PENDING_DAYS } from './judge.js';
 import { loadProjectSettings } from './project-rules.js';
 import { t } from './i18n.js';
+import { sessionTimeline } from './history.js';
 import {replay} from './ledger.js';
 import {courtDisabled} from './control-state.js';
 
@@ -32,6 +33,22 @@ export function statusCounts(discipline, reviews, now = Date.now()) {
       (['approved', 'rejected'].includes(review.exemplar.state) ? 1 : 0), 0) };
 }
 
+// A short sound when something new waits; the person turns it off in /config.
+let soundsOn = true;
+export function setSounds(enabled) { soundsOn = enabled !== false; }
+function chime($, name) {
+  if (!soundsOn) return;
+  try { void $.audio.play({ asset: `sounds/${name}.wav` }).catch(() => {}); } catch { /* Sound is a courtesy. */ }
+}
+
+// This session's subagents worth a strip: those at work, those held, and the
+// ones that ended a moment ago, oldest first.
+export const RECENT_AGENT_MS = 2 * 60 * 1000;
+export function bandAgents(timeline, now = Date.now()) {
+  return (timeline?.agents ?? []).filter(agent => agent.status === 'running' || agent.detained ||
+    (agent.endedAt !== null && now - agent.endedAt < RECENT_AGENT_MS));
+}
+
 const snapshots = new Map();
 const keyOf = ctx => `${ctx.archiveRoot}:${ctx.projectId}`;
 
@@ -46,24 +63,25 @@ export async function refreshStatus($, ctx) {
     const settings = await loadProjectSettings($, ctx);
     const active = settings.mode !== 'off' && !courtDisabled();
     let counts = { detained: 0, pending: 0, decided: 0, detainee: null, judgedToday: 0, violations: 0 };
-    let recentReviews = [], detainedRecords = [];
+    let recentReviews = [], detainedRecords = [], agents = [];
     if (active) {
       const events = (await readProjectShared($, ctx)).events, discipline = await disciplineState($, ctx, true, true);
       const now = Date.now(), reviews = reduceReviews(events, ctx.projectId, now);
       recentReviews = reviews.filter(review => now - review.at < PENDING_DAYS * DAY_MS);
       detainedRecords = discipline.violations.filter(record => record.sanction === 'detain' && record.status === 'active');
+      agents = sessionTimeline(events, ctx.projectId, ctx.sessionId, { discipline, reviews, now })?.agents ?? [];
       counts = { ...statusCounts(discipline, reviews, now), judgedToday: judgeUsage(events, ctx.projectId, now).today,
         violations: discipline.violations.filter(record => record.status === 'active').length };
     }
     const previous = snapshots.get(keyOf(ctx)), now = Date.now();
     const detainedAt = previous && counts.detained > previous.detained ? now : previous?.detainedAt ?? 0;
-    snapshots.set(keyOf(ctx), { ...counts, recentReviews, detainedRecords, detainedAt,
+    snapshots.set(keyOf(ctx), { ...counts, recentReviews, detainedRecords, agents, detainedAt,
       expanded: previous?.expanded ?? false, selected: previous?.selected ?? null,
       hidden: previous?.hidden && counts.detained <= previous.detained && counts.pending <= previous.pending });
     if (previous) {
       try {
-        if (counts.detained > previous.detained) $.ui.toast(t('toast.detained', { count: counts.detained }));
-        else if (counts.pending > previous.pending) $.ui.toast(t('toast.pending', { count: counts.pending }));
+        if (counts.detained > previous.detained) { $.ui.toast(t('toast.detained', { count: counts.detained })); chime($, 'detained'); }
+        else if (counts.pending > previous.pending) { $.ui.toast(t('toast.pending', { count: counts.pending })); chime($, 'review'); }
       } catch { /* A toast is a courtesy. */ }
     }
     try { $.ui.status(undefined); } catch { /* The band replaced the status line. */ }

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {sprite,ROLES,ROLE_EMOJI} from '../plugins/agent-arbiter/hooks/sprites.js';
-import {barText,barSvg,roleIcon,fraction,pillTrackSvg,pillWidth} from '../plugins/agent-arbiter/hooks/visuals.js';
-import {bandRows,drawRow} from '../plugins/agent-arbiter/hooks/band.js';
-import {statusCounts} from '../plugins/agent-arbiter/hooks/status.js';
+import {barText,barSvg,roleIcon,fraction,pillTrackSvg,pillWidth,agentStripSvg} from '../plugins/agent-arbiter/hooks/visuals.js';
+import {bandRows,drawRow,agentStrips} from '../plugins/agent-arbiter/hooks/band.js';
+import {statusCounts,bandAgents} from '../plugins/agent-arbiter/hooks/status.js';
 import {progressItems,bandDetail,bandDetailModel} from '../plugins/agent-arbiter/hooks/progress-view.js';
 import {noteDecision,decisionNote,forgetNotes} from '../plugins/agent-arbiter/hooks/notes.js';
 import {setLanguage} from '../plugins/agent-arbiter/hooks/i18n.js';
@@ -62,16 +62,13 @@ test('the band bars: what waits first and decides whether it shows; activity joi
   assert.equal(find(full,'Svg').length,2);
   const meter=find(full,'Svg')[1].props.source;
   assert.ok(meter.includes('3 chờ duyệt · 6/9 đã xử lý'),'the figure rides inside the pill');
-  assert.match(meter,/<rect width="\d+" height="20" rx="10" fill="#F7B74E" fill-opacity="0.16"/);
-  assert.match(meter,/<pattern id="pixel-grid"[^>]*width="3"[^>]*>[\s\S]*?<rect width="2" height="2"/);
-  assert.match(meter,/<animateTransform[^>]*type="translate"[^>]*calcMode="discrete"/);
-  assert.match(meter,/<g class="mv" clip-path="url\(#filled\)"/);
-  const durations=[...meter.matchAll(/<animate[^>]*dur="([\d.]+)s"/g)].map(match=>match[1]);
+  assert.match(meter,/fill="url\(#track-tint\)"/,'a tinted track that deepens toward the end');
+  assert.match(meter,/<pattern id="particles-0"/,'square particles fill the done part');
+  const durations=[...meter.matchAll(/\.flicker-\d+\{opacity:0;animation:flicker-\d+ ([\d.]+)s/g)].map(match=>match[1]);
   assert.ok(new Set(durations).size>1,'sparkles have independent timing');
-  assert.match(meter,/<animate .*attributeName="opacity"/,'groups pulse in their own hue');
-  assert.doesNotMatch(meter,/#FFFFFF/i,'no white flashes');
-  assert.match(meter,/prefers-reduced-motion: reduce\) \{ \.mv \{ display: none/,'reduced motion hides the glints');
-  assert.doesNotMatch(find(drawRow(table(),'desktop',rows[0],90),'Svg')[1].props.source,/<animate /,'a pill alone stands still');
+  assert.doesNotMatch(meter,/#FFFFFF"/i,'no white flashes');
+  assert.match(meter,/prefers-reduced-motion: reduce\)\{\.stream\{animation:none\}\.glint\{display:none\}/,'reduced motion stills the track');
+  assert.doesNotMatch(find(drawRow(table(),'desktop',rows[0],90),'Svg')[1].props.source,/@keyframes/,'a pill alone stands still');
   assert.deepEqual(texts(drawRow(table(),'desktop',rows[1],90,undefined,true)),[],'the small band has no figure');
   const jail=drawRow(table(),'desktop',rows[0],90);
   assert.equal(find(jail,'Svg').filter(graphic=>graphic.props.isInteractive).length,1,'a fresh detention flashes');
@@ -85,11 +82,11 @@ test('the band bars: what waits first and decides whether it shows; activity joi
 });
 
 test('the pill sits at the fill end, opens the track when nothing is done, and stands alone without a total',()=>{
-  const at=svg=>Number(/<rect x="([0-9.]+)" width="[0-9.]+" height="20" rx="10" fill="#F7B74E"/.exec(svg)[1]);
+  const at=(svg,label)=>Number(new RegExp(`<text x="([0-9.]+)"[^>]*>${label}</text>`).exec(svg)[1])-pillWidth(label)/2;
   const none=pillTrackSvg({label:'13 chờ duyệt',color:'#F7B74E',value:0,max:13,width:240});
-  assert.equal(none.width,240);assert.equal(at(none.source),0);
+  assert.equal(none.width,240);assert.equal(at(none.source,'13 chờ duyệt'),0);
   const some=pillTrackSvg({label:'3 chờ duyệt',color:'#F7B74E',value:6,max:9,width:240});
-  assert.equal(at(some.source),Math.round(6/9*(240-pillWidth('3 chờ duyệt'))),'the pill travels along the free track');
+  assert.equal(at(some.source,'3 chờ duyệt'),Math.round(6/9*(240-pillWidth('3 chờ duyệt'))),'the pill travels along the free track');
   const alone=pillTrackSvg({label:'1 bị giam',color:'#F76E72'});
   assert.equal(alone.width,pillWidth('1 bị giam'));
   assert.doesNotMatch(pillTrackSvg({label:'<b>',color:'#F7B74E"/><script>'}).source,/<script>|<b>/);
@@ -146,7 +143,7 @@ test('the bar fills its row and the native click target covers the artwork',()=>
   assert.equal(find(button,'Svg').length,0);
   const [,track]=find(drawn,'Svg');
   assert.match(track.props.source,/<text[^>]*>6\/9<\/text>/);
-  assert.match(track.props.source,/<animate /);
+  assert.match(track.props.source,/@keyframes/);
   button.props.onPress();assert.equal(pressed,1);
 });
 
@@ -189,4 +186,37 @@ test('the open list shows only what waits, with its actions, and folds the settl
   const jail=bandDetailModel({detainedRecords:[{id:'v1',citizen:{name:'court-coder'},ruleIds:['user:x']}]},'jail');
   assert.deepEqual(find(bandDetail(table(),'jail',jail,4,{busy:new Set(),more:()=>{},decide:()=>{},release:()=>{}}),'Button').map(button=>button.props.key),['release:v1']);
   setLanguage('en');
+});
+
+test('subagent strips: at work, held or just ended; newest few, then how many more',()=>{
+  setLanguage('en');
+  const now=10*60000,agent=(id,extra)=>({agentId:id,name:'agent-'+id,model:'claude-sonnet-4',status:'done',detained:false,endedAt:null,startedAt:0,calls:3,durationMs:1000,...extra});
+  const list=bandAgents({agents:[agent('old',{endedAt:now-5*60000}),agent('fresh',{endedAt:now-30000}),agent('run',{status:'running',startedAt:now-65000,durationMs:null}),agent('held',{detained:true})]},now);
+  assert.deepEqual(list.map(item=>item.agentId),['fresh','run','held']);
+  const opened=[];
+  const rows=agentStrips(table(),'desktop',list,90,2,item=>opened.push(item?.agentId ?? 'all'),now);
+  const buttons=find(rows,'Button');
+  assert.deepEqual(buttons.map(button=>button.props.key),['strip:held','strip-more'],'what does not fit is counted');
+  assert.match(find(rows,'Svg')[0].props.alt,/detained/);
+  buttons[1].props.onPress();assert.deepEqual(opened,['all']);
+  const running=find(agentStrips(table(),'desktop',list,90,4,()=>{},now),'Svg').map(svg=>svg.props.alt);
+  assert.ok(running.some(alt=>/agent-run · sonnet-4 · 3 call\(s\) · 1m 5s/.test(alt)),running.join('|'));
+  assert.match(agentStripSvg({name:'a',state:'running'}).source,/prefers-reduced-motion: no-preference/);
+  assert.doesNotMatch(agentStripSvg({name:'<b>',figure:'"/><x'}).source,/<b>|<x/);
+  assert.ok(texts(agentStrips(table(false),'terminal',list,80,4,()=>{},now)).some(text=>text.trim()==='◉'));
+});
+
+test('the agents bar counts this session’s finished agents and lists them with their score',()=>{
+  setLanguage('en');
+  const now=Date.now(),agents=[
+    {agentId:'a',name:'reviewer',model:'claude-haiku-4-5',status:'done',detained:false,startedAt:now-90000,endedAt:now-30000,durationMs:60000,calls:4,quality:92,violations:[]},
+    {agentId:'b',name:'coder',model:'claude-sonnet-4-5',status:'running',detained:false,startedAt:now-20000,endedAt:null,durationMs:null,calls:2,quality:null,violations:[]},
+  ];
+  const row=bandRows({detained:0,pending:0,decided:0,detainedAt:0,agents},now).find(item=>item.key==='agents');
+  assert.deepEqual([row.value,row.max,row.live,row.waiting],[1,2,true,false]);
+  assert.equal(bandRows({detained:0,pending:0,decided:0,detainedAt:0,agents:[{...agents[0],endedAt:now-10*60000}]},now).length,0,'long-finished agents leave the band');
+  const alts=find(agentStrips(table(),'desktop',agents,90,4,()=>{},now),'Svg').map(svg=>svg.props.alt);
+  assert.ok(alts.some(alt=>/reviewer · haiku-4-5 · 4 call\(s\) · 1m 0s · 92\/100/.test(alt)),alts.join('|'));
+  const model=bandDetailModel({agents},'agents');
+  assert.deepEqual([model.waiting.length,model.settled.length],[1,1]);
 });

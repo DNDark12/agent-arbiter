@@ -1,6 +1,8 @@
 import { t } from './i18n.js';
 import { approvalNotes } from './notes.js';
-import { COLORS, svgOf, timelineGutterSvg, timelineGutterText } from './visuals.js';
+import { runState } from './history-view.js';
+import { RUN_COLORS } from './visuals.js';
+import { COLORS, svgOf, textWidth, timelineGutterSvg, timelineGutterText } from './visuals.js';
 
 const DAY_MS = 86400000;
 const decisionColor = state => state === 'open' ? COLORS.review :
@@ -34,27 +36,41 @@ export function progressItems(snapshot, kind, now = Date.now()) {
     key: record.id, title: record.citizen?.name ?? t('pane.agentKind.subagent'), color: COLORS.jail,
     status: record.ruleIds.map(ruleName).join(' · '),
   }));
-  if (kind === 'asks') return approvalNotes().reverse().map(([id, note]) => ({
+  if (kind === 'asks') return [...(snapshot?.approvalNotes ?? approvalNotes())].reverse().map(([id, note]) => ({
     key: id, title: note.ruleIds.map(ruleName).join(' · '), status: t('note.' + note.outcome),
     color: note.outcome === 'approved' || note.outcome === 'session-allow' ? COLORS.trust : COLORS.review,
   }));
   return [];
 }
 
-export function progressGraph(h, surface, kind, items, more) {
+export function progressGraph(h, surface, kind, items, columns, more) {
   const Svg = svgOf(h, surface);
   const lanes = kind === 'reviews' ? 2 : 1;
+  const gutterWidth = Svg ? lanes + 1 : lanes * 2 + 1;
+  const statusCells = Math.max(1, ...items.map(({status = ''}) =>
+    Svg ? Math.ceil(textWidth(status) / 8) + 1 : [...status].length + 2));
+  const statusWidth = Math.min(statusCells, Math.max(1, Math.floor(columns / 3)));
   return h.Box({ key: 'progress-tree-' + kind, flexDirection: 'column', children: [
     ...items.map((item, index) => {
       const lane = item.branch ? 1 : 0, first = index === 0, last = index === items.length - 1;
       const gutter = Svg ? (() => {
         const drawn = timelineGutterSvg({ lane, lanes, color: item.color, first, last });
-        return Svg({ source: drawn.source, alt: '', width: drawn.width, height: drawn.height });
+        return Svg({ source: drawn.source, alt: item.branch ? '↳' : '●', width: drawn.width, height: drawn.height });
       })() : h.Text({ color: item.color, children: timelineGutterText({ lane, lanes, last }) });
       return h.Box({ key: 'progress:' + item.key, flexDirection: 'row', alignItems: 'center', gap: 1, children: [
-        gutter,
-        h.Text({ bold: !item.branch, maxLines: 1, wrap: 'truncate', children: item.title }),
-        ...(item.status ? [h.Text({ color: item.color, dimColor: true, maxLines: 1, wrap: 'truncate', children: item.status })] : []),
+        h.Box({ width: gutterWidth, flexShrink: 0, children: [gutter] }),
+        h.Box({ flexDirection: 'row', alignItems: 'center', gap: 1, flexGrow: 1, flexShrink: 1, minWidth: 0,
+          ...(Svg ? { paddingX: 1, ...(item.status ? { backgroundColor: item.color + '14' } : {}) } : {}),
+          children: [
+            h.Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, children: [
+              h.Text({ bold: !item.branch, maxLines: 1, wrap: 'truncate', children: item.title }),
+            ] }),
+            ...(item.status ? [h.Box({ width: statusWidth, flexShrink: 0,
+              alignItems: statusCells <= statusWidth ? 'flex-end' : 'stretch', children: [
+                h.Text({ color: item.color, size: 'caption', maxLines: 1, wrap: 'truncate', children: item.status }),
+              ] })] : []),
+          ],
+        }),
       ] });
     }),
     ...(!items.length && !more ? [h.Text({ dimColor: true, children: t('band.detailEmpty') })] : []),
@@ -106,7 +122,7 @@ export function bandDetailModel(snapshot, kind, now = Date.now()) {
     ref: record.id, title: record.citizen?.name ?? t('pane.agentKind.subagent'), detail: record.ruleIds.map(ruleName).join(' · '), color: COLORS.jail,
   })), settled: [], figure: '' };
   if (kind === 'asks') {
-    const notes = approvalNotes().map(([, note]) => note.outcome);
+    const notes = (snapshot?.approvalNotes ?? approvalNotes()).map(([, note]) => note.outcome);
     const allowed = notes.filter(outcome => outcome === 'approved' || outcome === 'session-allow').length;
     return { waiting: [], settled: notes.map(outcome => outcome === 'approved' || outcome === 'session-allow' ? COLORS.trust : COLORS.jail),
       figure: notes.length ? t('band.asksSplit', { allowed, refused: notes.length - allowed }) : '' };
@@ -116,6 +132,11 @@ export function bandDetailModel(snapshot, kind, now = Date.now()) {
     const average = scored.length ? Math.round(scored.reduce((sum, review) => sum + review.quality, 0) / scored.length) : null;
     return { waiting: [], settled: scored.map(review => scoreColor(review.quality)),
       figure: average === null ? '' : t('band.scoreAverage', { value: average }) };
+  }
+  if (kind === 'agents') {
+    const agents = snapshot?.agents ?? [], colorOf = agent => RUN_COLORS[runState(agent)] ?? RUN_COLORS.done;
+    return { waiting: agents.filter(agent => agent.status === 'running').map(agent => ({ ref: agent.agentId, title: agent.name, color: colorOf(agent) })),
+      settled: agents.filter(agent => agent.status !== 'running').map(colorOf), figure: '' };
   }
   return { waiting: [], settled: [], figure: '' };
 }
