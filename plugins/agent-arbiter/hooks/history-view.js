@@ -4,6 +4,7 @@
 import { t } from './i18n.js';
 import { durationText } from './history.js';
 import { RUN_COLORS, roleIcon, svgOf, timelineGutterSvg, timelineGutterText } from './visuals.js';
+import { checklistSummary } from './checklist.js';
 
 export const runState = agent => agent.detained ? 'detained' : agent.status;
 const shortModel = model => typeof model === 'string' ? model.replace(/^claude-/, '').replace(/-\d{8}$/, '') : '';
@@ -34,4 +35,46 @@ export function timelineRow(h, surface, agent, { lanes = 1, first = false, last 
     onPress ? h.Button({ key: runKey, plain: true, onPress, children: [title] }) : title,
     ...(main ? [] : [h.Text({ color, maxLines: 1, children: t('role.' + agent.role) })]),
     h.Text({ dimColor: true, maxLines: 1, wrap: 'truncate', children: facts })] });
+}
+
+export function sessionProgressDetails(h, timeline, contextPercent) {
+  const metrics = timeline.metrics;
+  const counts = [
+    ['elapsed', metrics.elapsedMs, durationText], ['work', metrics.workMs, durationText],
+    ['wait', metrics.waitMs, durationText], ['input', metrics.input], ['cached', metrics.cached], ['output', metrics.output],
+  ].filter(([, value]) => value !== null).map(([key, value, format]) => h.Text({
+    key: 'session-' + key, children: t('progress.metric.' + key, { value: format ? format(value) : value.toLocaleString() }),
+  }));
+  return [
+    h.Box({ key: 'session-metrics', flexDirection: 'row', flexWrap: 'wrap', gap: 1, children: counts }),
+    ...(metrics.partial ? [h.Text({ dimColor: true, children: t('progress.metric.partial') })] : []),
+    ...(Number.isFinite(contextPercent) && contextPercent >= 0 && contextPercent <= 100 ? [h.Text({
+      key: 'session-context', bold: contextPercent >= 80,
+      children: t(contextPercent >= 80 ? 'progress.contextWarning' : 'progress.context', { percent: contextPercent }),
+    })] : []),
+    ...(timeline.checks.length ? [h.Text({ bold: true, children: t('progress.checks') }),
+      ...timeline.checks.map(check => h.Text({ key: 'check:' + check.id, children: [
+        t('progress.check.' + check.kind), t('progress.check.' + (check.resolvedAt !== null ? 'resolved' : check.outcome)),
+        new Date(check.at).toLocaleString(),
+        ...(check.resolvedAt !== null ? [new Date(check.resolvedAt).toLocaleString()] : []),
+      ].join(' · ') })),
+    ] : []),
+  ];
+}
+
+export function checklistView(h, checklist, calls, { expanded, toggle, clear }) {
+  const summary = checklistSummary(checklist);
+  if (!summary.total && !calls) return [];
+  const description = summary.total ? t('progress.tasksCount', { ...summary, percent: Math.floor(summary.completed / summary.total * 100) }) :
+    t('history.calls', { count: calls });
+  return [h.Box({ key: 'session-checklist', flexDirection: 'column', gap: 1, children: [
+    h.Button({ key: 'session-checklist-toggle', plain: true, label: `${expanded ? '▾' : '▸'} ${t('progress.checklist')} · ${description}`, onPress: toggle }),
+    ...(expanded ? checklist.tasks.map(task => {
+      const time = task.startedAt === null ? '' : durationText((task.endedAt ?? Date.now()) - task.startedAt);
+      return h.Text({ key: 'task:' + task.id, children: [
+        task.stage, task.label, t('progress.task.' + task.status), time,
+      ].filter(Boolean).join(' · ') });
+    }) : []),
+    ...(expanded && summary.total && clear ? [h.Button({ key: 'session-checklist-clear', plain: true, label: t('progress.clear'), onPress: clear })] : []),
+  ] })];
 }

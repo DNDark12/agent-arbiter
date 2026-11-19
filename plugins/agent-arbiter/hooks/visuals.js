@@ -141,7 +141,7 @@ export function pillTrackSvg({ label, color, value = 0, max = null, width = 240,
   const fill = paint(color), pill = label ? pillWidth(label) : 0, mid = PILL_HEIGHT / 2;
   const pillShape = `<rect width="${pill}" height="${PILL_HEIGHT}" rx="${mid}" fill="${fill}"/>`;
   const pillText = x => `<text x="${x + pill / 2}" y="${mid + 4}" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-size="11.5" font-weight="650" fill="#1B1B1B" style="font-variant-numeric: tabular-nums">${escapeText(label)}</text>`;
-  const svg = (w, body) => ({ width: w, height: PILL_HEIGHT, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${PILL_HEIGHT}" viewBox="0 0 ${w} ${PILL_HEIGHT}">${body}</svg>` });
+  const svg = (w, body) => ({ width: w, height: PILL_HEIGHT, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${PILL_HEIGHT}" viewBox="0 0 ${w} ${PILL_HEIGHT}"><style>:root{color-scheme:light dark}.track-tick{fill:#CED7E5}@media(prefers-color-scheme:light){.track-tick{fill:#384152}}</style>${body}</svg>` });
   if (!Number.isFinite(max) || max <= 0) return svg(pill, pillShape + pillText(0));
   const track = Math.max(pill + 24, Math.round(width));
   const free = track - pill, share = fraction({ value, max });
@@ -161,7 +161,7 @@ export function pillTrackSvg({ label, color, value = 0, max = null, width = 240,
   }
   for (let i = 1; i < 4; i++) {
     const x = Math.round((i * track) / 4);
-    if (x > end + 6 && x < track - 6) parts.push(`<rect x="${x}" y="6" width="1.5" height="8" rx="0.75" fill="#8F9BB1" opacity="0.55"/>`);
+    if (x > end + 6 && x < track - 6) parts.push(`<rect x="${x}" y="6" width="1.5" height="8" rx="0.75" class="track-tick" opacity="0.55"/>`);
   }
   if (pill) parts.push(start===0 ? pillShape + pillText(start) : pillText(start));
   return svg(track, parts.join(''));
@@ -229,22 +229,25 @@ export function timelineGutterText({ lane = 0, lanes = 1, last = false }) {
 export const STRIP_HEIGHT = 16;
 // Room around a strip inside its picture, so strips stand apart from the bar and from each other.
 const STRIP_PAD = 4;
-export function agentStripSvg({ name, figure = '', state = 'running', width = 300, first = false }) {
+export function agentStripSvg({ name, figure = '', state = 'running', width = 300, first = false, effects = true }) {
   const color = paint(RUN_COLORS[state] ?? RUN_COLORS.done), w = Math.max(80, Math.round(width)), r = STRIP_HEIGHT / 2;
   const top = first ? STRIP_PAD * 2 : STRIP_PAD, height = top + STRIP_HEIGHT + STRIP_PAD, mid = top + r;
   const font = 'font-family="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" font-size="11"';
-  const room = Math.max(0, Math.floor((w - 24 - (figure ? textWidth(figure) + 14 : 0)) / 6.4));
+  const figureLimit = Math.max(4, Math.floor((w * 0.48 - 8) / 6.4));
+  const chars = [...String(figure)];
+  const visibleFigure = chars.length > figureLimit ? chars.slice(0, figureLimit - 1).join('') + '…' : figure;
+  const room = Math.max(0, Math.floor((w - 24 - (visibleFigure ? textWidth(visibleFigure) + 14 : 0)) / 6.4));
   const shown = [...String(name)].length > room ? [...String(name)].slice(0, Math.max(1, room - 1)).join('') + '…' : String(name);
   const twinkle = [];
-  if (state === 'running') for (let x = 22; x < w - 10; x += 6) {
+  if (effects && state === 'running') for (let x = 22; x < w - 10; x += 6) {
     const y = top + 4 + Math.floor(hash(x * 31) * 3) * 3;
     if (hash(x * 17) > .45) continue;
     twinkle.push(`<rect x="${x}" y="${y}" width="2" height="2" fill="${color}" opacity=".35" class="tw" style="animation-delay:-${(hash(x * 7) * 2.4).toFixed(2)}s"/>`);
   }
-  const style = '<style>@media (prefers-reduced-motion: no-preference) { .tw { animation: tw 2.4s ease-in-out infinite } .dot { animation: tw 1.6s ease-in-out infinite } } @keyframes tw { 50% { opacity: .9 } } .nm { fill: #E6E6E6 } @media (prefers-color-scheme: light) { .nm { fill: #2A2A2A } }</style>';
+  const style = '<style>:root{color-scheme:light dark}@media (prefers-reduced-motion: no-preference) { .tw { animation: tw 2.4s ease-in-out infinite } .dot { animation: tw 1.6s ease-in-out infinite } } @keyframes tw { 50% { opacity: .9 } } .nm { fill: #E6E6E6 } .stat{fill:#D5DEEB} @media (prefers-color-scheme: light) { .nm,.stat { fill: #263444 } }</style>';
   return { width: w, height, source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${height}" viewBox="0 0 ${w} ${height}">${style}` +
     `<rect y="${top}" width="${w}" height="${STRIP_HEIGHT}" rx="${r}" fill="${color}" fill-opacity=".15"/>${twinkle.join('')}` +
-    `<circle cx="${r + 2}" cy="${mid}" r="3" fill="${color}"${state === 'running' ? ' class="dot"' : ''}/>` +
+    `<circle cx="${r + 2}" cy="${mid}" r="3" fill="${color}"${effects && state === 'running' ? ' class="dot"' : ''}/>` +
     `<text x="${r + 10}" y="${mid + 4}" ${font} class="nm">${escapeText(shown)}</text>` +
-    (figure ? `<text x="${w - 8}" y="${mid + 4}" ${font} text-anchor="end" fill="${color}">${escapeText(figure)}</text>` : '') + '</svg>' };
+    (visibleFigure ? `<text x="${w - 8}" y="${mid + 4}" ${font} text-anchor="end" class="stat">${escapeText(visibleFigure)}</text>` : '') + '</svg>' };
 }

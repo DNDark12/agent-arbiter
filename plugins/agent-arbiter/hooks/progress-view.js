@@ -11,7 +11,7 @@ const reviewer = review => review.citizen?.kind === 'main' || !review.agentId
   ? t('pane.agentKind.main') : review.citizen?.name || t('pane.agentKind.subagent');
 const decisionLabel = state => t('settings.decision.' + state);
 const ruleName = id => id.startsWith('user:') ? t('note.custom') : t('rule.' + id);
-export const progressTitle = kind => t('band.progress.' + kind);
+export const progressTitle = kind => t(kind === 'checklist' ? 'progress.checklist' : 'band.progress.' + kind);
 
 export function progressItems(snapshot, kind, now = Date.now()) {
   const reviews = snapshot?.recentReviews ?? [];

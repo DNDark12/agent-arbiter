@@ -4,6 +4,9 @@ import { t } from './i18n.js';
 import { configRoot } from './context.js';
 
 const TIMEOUT_MS = 120000;
+const OFFICIAL_PLUGIN = 'agent-arbiter@agent-arbiter';
+const MANIFEST = 'https://raw.githubusercontent.com/DNDark12/agent-arbiter/main/plugins/agent-arbiter/.claude-plugin/plugin.json';
+const versionParts = value => typeof value === 'string' && /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(value) ? value.split('.').map(Number) : null;
 const trim = path => typeof path === 'string' ? path.replace(/\/+$/, '') : '';
 
 async function installations($) {
@@ -22,6 +25,30 @@ export async function currentInstall($) {
   try {
     return (await installations($)).find(entry => trim(entry.installPath) === root && /^[^@\s]+@[^@\s]+$/.test(entry.id)) ?? null;
   } catch { return null; }
+}
+
+export async function loadedVersion($) {
+  try {
+    const manifest = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`));
+    if (manifest.name === 'agent-arbiter' && versionParts(manifest.version)) return manifest.version;
+  } catch { /* Fall back to the installation registry. */ }
+  return (await currentInstall($))?.version ?? null;
+}
+
+// A read-only check. Use a fixed public URL and never send credentials or session data.
+export async function updateAvailability($) {
+  try {
+    if (await $.env.get('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')) return { status: 'disabled' };
+    const install = await currentInstall($);
+    const installed = versionParts(install?.version);
+    if (install?.id !== OFFICIAL_PLUGIN || !installed) return { status: 'unsupported' };
+    const response = await $.http.fetch(MANIFEST);
+    if (!response.ok || typeof response.text !== 'string' || response.text.length > 20000) return { status: 'failed' };
+    const manifest = JSON.parse(response.text), remote = versionParts(manifest.version);
+    if (manifest.name !== 'agent-arbiter' || !remote) return { status: 'failed' };
+    const different = remote.findIndex((part, index) => part !== installed[index]);
+    return { status: different >= 0 && remote[different] > installed[different] ? 'available' : 'current', version: manifest.version };
+  } catch { return { status: 'failed' }; }
 }
 
 // Where the Claude Code CLI may be, best first. The desktop app runs its own

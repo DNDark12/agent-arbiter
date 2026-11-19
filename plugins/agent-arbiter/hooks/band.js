@@ -6,7 +6,7 @@ import { t } from './i18n.js';
 import { roleOf } from './roles.js';
 import { maybeOpenPinnedPane, openRulesPane } from './rules-pane.js';
 import { bandAgents, bandSnapshot, hideBand, refreshStatus, selectBandProgress, setBandExpanded, PULSE_MS } from './status.js';
-import { decisionNote, sessionAsks } from './notes.js';
+import { currentActivity, decisionNote, outputRate, pendingWaits, sessionAsks } from './notes.js';
 import { DAILY_TRIALS, decideFinding, reduceReviews } from './judge.js';
 import { COLORS, RUN_COLORS, agentStripSvg, fraction, pillTrackSvg, pillWidth, roleIcon, svgOf } from './visuals.js';
 import { durationText } from './history.js';
@@ -14,6 +14,7 @@ import { runState } from './history-view.js';
 import { bandDetail, bandDetailModel, progressTitle } from './progress-view.js';
 import { readProjectShared } from './events.js';
 import { releaseViolations } from './discipline.js';
+import { checklistSummary } from './checklist.js';
 
 let lastContext = null;
 
@@ -118,7 +119,7 @@ function bandLabel(row, free, small) {
 // One bar as drawn. columns is the row's width in cells and the track fills
 // what the pill leaves; the figure goes first when room runs short, then the
 // track, never the pill. small: the one-bar band, with no figure.
-export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, labelColumns = null) {
+export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, labelColumns = null, effects = true) {
   const Svg = svgOf(h, surface), free = columns - 4 - (tail || labelColumns ? BUTTON_COLUMNS : 0);
   const spaceForTrack = label => row.max ? Math.min(MAX_TRACK_COLUMNS, free - (labelColumns ?? columnsOf(label)) - 1) : 0;
   // Desktop cells are wider than the terminal's: size the track to the real row.
@@ -128,15 +129,15 @@ export function drawRow(h, surface, row, columns, tail, small = false, onPress =
   const badge = Svg && ratio && trackPixels(spaceForTrack(meterLabel)) >= pillWidth(ratio) + 24 ? ratio : '';
   const label = ratio ? (badge ? meterLabel : `${meterLabel} · ${ratio}`) : bandLabel(row, free, small);
   const trackColumns = spaceForTrack(label);
-  const lead = roleIcon(h, surface, row.role, 18, row.detained ? { detained: true, pulse: row.pulse } : { animate: row.waiting }, row.alt);
-  const labelText = h.Text({ color: row.color, bold: true, maxLines: 1, children: ` ${label} ` });
+  const lead = roleIcon(h, surface, row.role, 18, row.detained ? { detained: true, pulse: effects && row.pulse } : { animate: effects && row.waiting }, row.alt);
+  const labelText = h.Text({ bold: true, maxLines: 1, wrap: 'truncate', children: ` ${label} ` });
   const content = [lead];
   if (Svg) {
     if (onPress) content.push(labelColumns ? h.Box({ key: 'label-' + row.key, width: labelColumns, flexShrink: 0, children: [labelText] }) : labelText);
     if (!onPress || trackColumns >= 4) {
       const trackLabel = onPress ? badge : label;
       const width = onPress ? trackPixels(trackColumns) : Math.max(pillWidth(label) + 24, trackPixels(trackColumns));
-      const drawn = pillTrackSvg({ label: trackLabel, color: row.color, value: row.value, max: row.max, width });
+      const drawn = pillTrackSvg({ label: trackLabel, color: row.color, value: row.value, max: row.max, width, moving: effects });
       content.push(Svg({ source: drawn.source, alt: row.alt, width: drawn.width, height: drawn.height,
         ...(row.value > 0 && row.max > 0 ? { isInteractive: true } : {}) }));
     }
@@ -182,12 +183,17 @@ const MAX_STRIPS = 6;
 const shortModel = model => typeof model === 'string' ? model.replace(/^claude-/, '').replace(/-\d{8}$/, '') : '';
 function stripFigure(agent, now) {
   if (agent.detained) return t('history.status.detained');
+  if (agent.status === 'running' && agent.activity) {
+    const label = [...agent.activity.label];
+    return (label.length > 25 ? label.slice(0, 24).join('') + '…' : agent.activity.label) + ' · ' +
+      durationText(now - agent.activity.startedAt);
+  }
   const time = durationText(agent.durationMs ?? (agent.status === 'running' ? now - agent.startedAt : null));
   return [t('history.calls', { count: agent.calls }), time,
     agent.quality !== null && agent.quality !== undefined ? t('score.outOf100', { value: agent.quality }) : agent.status === 'running' ? '' : null,
     agent.violations?.length ? t('history.violations', { count: agent.violations.length }) : ''].filter(Boolean).join(' · ');
 }
-export function agentStrips(h, surface, agents, columns, room, onOpen, now = Date.now()) {
+export function agentStrips(h, surface, agents, columns, room, onOpen, now = Date.now(), effects = true) {
   if (!agents?.length || room < 1) return [];
   const Svg = svgOf(h, surface), fit = Math.min(MAX_STRIPS, agents.length > room ? room - 1 : room);
   const shown = fit > 0 ? agents.slice(-fit) : [], hidden = agents.length - shown.length;
@@ -198,7 +204,7 @@ export function agentStrips(h, surface, agents, columns, room, onOpen, now = Dat
     if (!Svg) return h.Button({ key, plain: true, label, onPress, children: [
       h.Text({ color: RUN_COLORS[state] ?? RUN_COLORS.done, children: state === 'running' ? '◉ ' : '● ' }),
       h.Text({ children: name + ' ' }), h.Text({ dimColor: true, children: figure })] });
-    const drawn = agentStripSvg({ name, figure, state, width: Math.min(900, (columns - 4) * 7.5), first: index === 0 });
+    const drawn = agentStripSvg({ name, figure, state, width: Math.min(900, (columns - 4) * 7.5), first: index === 0, effects });
     // The picture is the strip; a clear button over it takes the press.
     return h.Box({ key: 'strip-row:' + agent.agentId, position: 'relative', children: [
       Svg({ source: drawn.source, alt: label, width: drawn.width, height: drawn.height }),
@@ -212,12 +218,33 @@ export function agentStrips(h, surface, agents, columns, room, onOpen, now = Dat
 const outcomeText = outcome => t('note.' + (['approved', 'session-allow', 'refused', 'unanswered', 'denied-by-rule', 'retry-after-refusal'].includes(outcome) ? outcome : 'other'));
 const ruleName = id => id.startsWith('user:') ? t('note.custom') : t('rule.' + id);
 
+function sessionRows(snapshot, ctx, now) {
+  const rows = bandRows(snapshot, now, sessionAsks());
+  if (snapshot.active === false) return rows;
+  const waits = pendingWaits(ctx);
+  const afterDecisions = rows.findIndex(row => !row.waiting);
+  if (waits.length) {
+    const label = t('progress.waitCount', { count: waits.length });
+    rows.splice(afterDecisions < 0 ? rows.length : afterDecisions, 0, { key: 'waits', pill: label, alt: label, waiting: true, role: 'main', color: COLORS.review });
+  }
+  if (ctx.preferences.checklist) {
+    const tasks = checklistSummary(snapshot.checklist);
+    const closed = ctx.preferences.autoCloseChecklist && tasks.endedAt !== null && now - tasks.endedAt >= 30000;
+    if (tasks.total && !closed) {
+      const label = t('progress.tasksCount', { ...tasks, percent: Math.floor(tasks.completed / tasks.total * 100) });
+      rows.push({ key: 'checklist', waiting: false, live: true, role: 'main', color: tasks.failed ? COLORS.jail : COLORS.clean,
+        pill: label, alt: t('progress.checklist') + ' · ' + label, value: tasks.completed, max: tasks.total, endedAt: tasks.endedAt });
+    }
+  }
+  return rows;
+}
+
 export function registerBand(on) {
   on('ui.message', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (!e.element.startsWith('band-toggle-') || e.data !== 'toggle') return next(e);
     const ctx = await contextOf($), snapshot = bandSnapshot(ctx);
     const key = e.element.slice('band-toggle-'.length);
-    if (snapshot && !snapshot.hidden && bandRows(snapshot, Date.now(), sessionAsks()).some(row => row.key === key)) selectBandProgress($, ctx, key);
+    if (snapshot && !snapshot.hidden && sessionRows(snapshot, ctx, Date.now()).some(row => row.key === key)) selectBandProgress($, ctx, key);
     return {};
   });
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -225,21 +252,26 @@ export function registerBand(on) {
     let ctx;
     try { ctx = await contextOf($); } catch { return next(e); }
     if (e.surface === 'desktop') void maybeOpenPinnedPane($, ctx);
-    if (hasSurvey || maxRows < 1) return next(e);
+    if (hasSurvey || maxRows < 1) { tick($, false); return next(e); }
     const snapshot = bandSnapshot(ctx);
     if (!snapshot) { void refreshStatus($, ctx); return next(e); }
-    if (snapshot.hidden) return next(e);
-    const asks = sessionAsks(), rows = bandRows(snapshot, Date.now(), asks);
-    const agents = snapshot.agents ?? [];
+    if (snapshot.hidden) { tick($, false); return next(e); }
+    const now = Date.now(), rows = sessionRows(snapshot, ctx, now);
+    const agents = (snapshot.agents ?? []).map(agent => ({ ...agent, activity: currentActivity(ctx, agent.agentId) }));
     const openRun = agent => void openRulesPane($, ctx, 'citizens', { kind: 'run', sessionId: ctx.sessionId, agentId: agent?.agentId ?? null }).catch(() => {});
     // Shown while something waits or a subagent works; the activity bars ride along when open.
     if (!rows.some(row => row.waiting || row.live)) { tick($, false); return next(e); }
     // A working agent's time moves: redraw now and then while one runs.
-    tick($, agents.some(agent => agent.status === 'running'));
+    tick($, agents.some(agent => agent.status === 'running') ||
+      ctx.preferences.autoCloseChecklist === true && rows.some(row => row.key === 'checklist' && row.endedAt !== null));
     const h = $.ui.resolve(e), expanded = snapshot.expanded === true;
     const selected = rows.find(row => row.key === snapshot.selected);
     const icon = (key, label, onPress) => h.Button({ key, label, plain: true, dimColor: true, onPress });
-    const showDetails = () => void openRulesPane($, ctx, 'progress', { kind: 'progress', key: selected.key });
+    const showDetails = () => {
+      if (selected.key === 'waits') return void openAtWaiting($);
+      if (selected.key === 'checklist') return openRun(null);
+      void openRulesPane($, ctx, 'progress', { kind: 'progress', key: selected.key });
+    };
     const tail = h.Box({ key: 'actions', flexDirection: 'row', gap: 1, flexShrink: 0, children: [
       ...(rows.length > 1 ? [icon('band-list', '≡', () => setBandExpanded($, ctx, Boolean(selected) || !expanded))] : []),
       icon('band-open', '↗', selected ? showDetails : () => void openAtWaiting($)),
@@ -252,11 +284,12 @@ export function registerBand(on) {
     const widestLabel = Math.max(...rows.map(row => columnsOf(row.max ? progressTitle(row.key) : row.pill)));
     const labelColumns = gap && free - widestLabel >= 14 ? widestLabel : null;
     const bars = visible.map((row, index) => drawRow(h, e.surface, row, columns, index === 0 ? tail : undefined, !expanded,
-      () => selectBandProgress($, ctx, row.key), labelColumns));
+      () => selectBandProgress($, ctx, row.key), labelColumns, ctx.preferences.effects !== false));
     const room = maxRows - 1;
     if (!selected || room < 1) return h.Box({ flexDirection: 'column', gap, children: bars });
     if (selected.key === 'agents') return h.Box({ flexDirection: 'column', children: [...bars,
-      ...agentStrips(h, e.surface, agents, columns, room, openRun)] });
+      ...(ctx.preferences.foldAgentStrips ? [] : agentStrips(h, e.surface, agents, columns, room, openRun, now, ctx.preferences.effects !== false))] });
+    if (selected.key === 'waits' || selected.key === 'checklist') return h.Box({ flexDirection: 'column', children: bars });
     const detail = bandDetail(h, selected.key, bandDetailModel(snapshot, selected.key), room, {
       busy, more: showDetails,
       decide: (ref, decision) => void decideInBand($, ctx, ref, decision),
@@ -270,14 +303,16 @@ export function registerBand(on) {
     const below = await next(e);
     let ctx, snapshot;
     try { ctx = await contextOf($); snapshot = bandSnapshot(ctx); } catch { return below; }
-    const count = snapshot ? snapshot.detained + snapshot.pending : 0;
-    if (!count) return below;
+    const count = snapshot?.active !== false && snapshot ? snapshot.detained + snapshot.pending + pendingWaits(ctx).length : 0;
+    const rate = snapshot?.active !== false && ctx.preferences.outputSpeed ? outputRate(ctx) : null;
+    if (!count && rate === null) return below;
     const h = $.ui.resolve(e);
-    const color = snapshot.detained ? COLORS.jail : COLORS.review;
-    const label = (snapshot.detained ? '⛓ ' : '⚖ ') + count;
+    const color = snapshot?.detained ? COLORS.jail : COLORS.review;
+    const label = (snapshot?.detained ? '⛓ ' : '⚖ ') + count;
     return h.Box({ flexDirection: 'row', alignItems: 'center', gap: 1, children: [
-      h.Button({ key: 'arbiter-footer', plain: true, label: t('menu.waiting', { count }), onPress: () => void openAtWaiting($),
-        children: [h.Text({ color, children: label })] }),
+      ...(count ? [h.Button({ key: 'arbiter-footer', plain: true, label: t('menu.waiting', { count }), onPress: () => void openAtWaiting($),
+        children: [h.Text({ color, children: label })] })] : []),
+      ...(rate === null ? [] : [h.Text({ key: 'arbiter-speed', dimColor: true, children: t('progress.rate', { rate: Math.round(rate) }) })]),
       ...(below ? [below] : []),
     ] });
   });

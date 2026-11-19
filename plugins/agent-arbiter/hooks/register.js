@@ -6,7 +6,7 @@ import { classifyTool } from './action.js';
 import { actorSentence, stopForHandover } from './prison.js';
 import { enforceSpawn, rememberSpawn } from './spawn.js';
 import { handleCourt, observing, currentEnforcement, enforcementArmed, courtDisabled, setMasterEnabled } from './controls.js';
-import { emit, readProject } from './events.js';
+import { emit, readProject, readProjectShared } from './events.js';
 import { canonical, digest, replay } from './ledger.js';
 import { redact, fileMetadata } from './privacy.js';
 import { observationContext as context, platformSupported } from './context.js';
@@ -14,12 +14,15 @@ import { citizen, bindCitizen } from './citizens.js';
 import { transcriptCoverage, gitSnapshot, gitHead } from './forensics.js';
 import { rememberCitizen, takeSpawnNote, handbackNoteFor, replacementAllowed, rejectReplacement, beginReplacement, endReplacement } from './discipline.js';
 import { setLanguage, t } from './i18n.js';
-import { refreshStatus, setSounds, statusCounts } from './status.js';
+import { chime, refreshStatus, setSounds, statusCounts } from './status.js';
 import { disciplineState } from './discipline.js';
 import { reduceReviews } from './judge.js';
 import { rememberBrief, rememberMainTurn, mainTurnId, noteActivity, judgeRun } from './judge.js';
 import { briefProfile } from './roles.js';
 import { maintain, pruneProject, RETENTION_DAYS } from './retention.js';
+import { beginActivity, beginWait, endActorActivity, recordOutputRate } from './notes.js';
+import { verificationCheck, verificationOutcome } from './history.js';
+import { CHECKLIST_TOOL, NATIVE_TASKS, checklistSummary, nativeOperation, registerChecklistTool, reportedOperation, saveChecklist } from './checklist.js';
 
 const offers = new Map();
 let failures = 0;
@@ -54,6 +57,14 @@ function offerKey(input) {
   return canonical([input.subagentType || input.agent || '', input.provider || null]);
 }
 
+async function recordChecklist($, ctx, key, op) {
+  const result = await saveChecklist($, ctx, key, op);
+  if (ctx.preferences.progressSounds && result.chime) chime($, result.chime);
+  const summary = checklistSummary(result);
+  await refreshStatus($, ctx);
+  return summary;
+}
+
 async function summary($, cleanup = false) {
   const ctx = await context($);
   const pruned = cleanup ? await pruneProject($, ctx) : null;
@@ -70,6 +81,7 @@ async function summary($, cleanup = false) {
 
 /** @type {import('claude-code').Register} */
 export const register = (on, options = {}) => {
+  let stream = null;
   setMasterEnabled(options.enabled);
   setLanguage(options.language);
   setSounds(options.sounds);
@@ -82,7 +94,11 @@ export const register = (on, options = {}) => {
       await $.command.register({ name: 'arbiter', description: 'Open Agent Arbiter settings and controls', argumentHint: 'open panel | update | off | help', immediate: true });
       if (!await collecting($)) return next(e);
       const ctx = await context($);
+      if (ctx.preferences.checklist) {
+        try { await registerChecklistTool($); } catch { /* Task progress is optional. */ }
+      }
       await emit($, ctx, null, 'session.start', boot, {
+        progress: 1,
         mode: (await currentEnforcement($,ctx)).mode, engineVersion: redact((await $.session.version()).version),
         model: redact(await $.session.model()), git: await gitSnapshot($, ctx.root) });
       // Daily upkeep in the background: old routine records and stale part files.
@@ -164,6 +180,13 @@ export const register = (on, options = {}) => {
     const key = e.tool_use_id || `${boot}:${++sequence}`;
     const data = { tool: redact(e.tool), toolCallId: e.tool_use_id || null };
     try{ctx=await context($);}catch{await warn($);}
+    if (e.tool === CHECKLIST_TOOL) {
+      if (!ctx?.preferences.checklist || actor || (next.origin?.plugin && next.origin.plugin !== 'engine')) return { deny: 'This session has no main-thread checklist reporting access.' };
+      try {
+        const updated = await recordChecklist($, ctx, key, reportedOperation(e));
+        return { result: `${updated.completed}/${updated.total}` };
+      } catch (error) { return { deny: String(error.message || 'Checklist update unavailable.').slice(0, 140) }; }
+    }
     const probe=ctx?consumeRuntimeProbe(ctx,e,next.origin,$.plugin.name):null;
     if(probe){
       let result;
@@ -213,11 +236,36 @@ export const register = (on, options = {}) => {
       }
     }else if(armed())return {deny:'Agent Arbiter context unavailable.'};
     else if(!courtDisabled() && fallbackTool(e))return fallbackTool(e);
+    let check = null;
+    if (ctx && e.tool === 'Bash') {
+      let cwd = ctx.root;
+      try { cwd = await $.session.cwd() || cwd; } catch { /* Older engine or fixture. */ }
+      try { check = await verificationCheck(e.command, [ctx.checkoutId, cwd]); }
+      catch { /* Optional history metadata. */ }
+    }
+    const finish = ctx && actor ? beginActivity($, ctx, actor, key, 'tool', data.tool) : null;
+    const prompt = !actor && (e.tool === 'AskUserQuestion' ? 'question' : e.tool === 'ExitPlanMode' ? 'plan' : null);
+    const settle = ctx && prompt && next.origin?.plugin !== $.plugin.name ? beginWait($, ctx, actor, key, prompt) : null;
     let result;
     try { result = await next(e); }
     catch (error) {
       try { if (ctx) await emit($, ctx, actor, 'tool.result', key, { ...data, status: 'exception' }); } catch { await warn($); }
       throw error;
+    } finally {
+      finish?.();
+      if (settle) await settle();
+      if (check && result?.deny === undefined) {
+        const outcome = verificationOutcome(check, result);
+        try {
+          const previous = outcome === 'failed' && ctx.preferences.progressSounds ?
+            (await readProjectShared($, ctx)).events.findLast(event => event.kind === 'progress.check' &&
+              event.sessionId === ctx.sessionId && event.data.key === check.key && event.data.outcome !== 'unknown') : null;
+          await emit($, ctx, actor, 'progress.check', key, { ...check, outcome });
+          if (outcome === 'failed' && ctx.preferences.progressSounds && previous?.data.outcome !== 'failed') chime($, 'check-failed');
+        }
+        catch { /* The original result is authoritative. */ }
+        void refreshStatus($, ctx);
+      }
     }
     if(ctx)noteActivity(ctx,actor,{tool:e.tool,target:data.file?.path ?? data.command,status:result.deny?'denied':result.isError?'error':'completed'},data.turnId);
     // A spawn the Arbiter moved to another model: say so to whoever started it.
@@ -228,14 +276,64 @@ export const register = (on, options = {}) => {
       exitCode: Number.isInteger(result.result?.exitCode) ? result.result.exitCode : null,
       exitCodeStatus: Number.isInteger(result.result?.exitCode) ? 'reported' : 'unavailable',
       status: result.deny ? 'denied' : result.isError ? 'error' : 'completed' }); } catch { await warn($); }
+    if (ctx?.preferences.checklist && !actor && NATIVE_TASKS.has(e.tool)) {
+      try {
+        const op = await nativeOperation(e, result);
+        if (op) await recordChecklist($, ctx, key, op);
+      } catch { /* Leave the original native task operation intact. */ }
+    }
     return result;
   }).catch(($,e,next)=>next.called?next(e):armed()?{deny:'Agent Arbiter hardened tool gate failed; execution refused.'}:(courtDisabled()?next(e):(fallbackTool(e) || next(e))));
 
   on('turn.start', async ($, e, next) => {
-    if(!e.agentId && await collecting($)){
-      try{rememberMainTurn(await context($),e);}catch{await warn($);}
+    if(!e.agentId){
+      stream = null;
+      if (await collecting($)) {
+        try {
+          const ctx = await context($);
+          rememberMainTurn(ctx, e);
+          if (ctx.preferences.outputSpeed) stream = { ctx, id: e.turnId };
+        } catch { await warn($); }
+      }
     }
     return next(e);
+  });
+
+  on('tool.list', async ($, e, next) => {
+    const result = await next(e);
+    if (!result.value?.some(tool => tool.name === CHECKLIST_TOOL)) return result;
+    try {
+      const ctx = await context($);
+      if (ctx.preferences.checklist && ctx.preferences.mode !== 'off' && !courtDisabled()) return result;
+    } catch { /* Hide the optional tool when its preference is unavailable. */ }
+    return { ...result, value: result.value.filter(tool => tool.name !== CHECKLIST_TOOL) };
+  });
+
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId || !stream || stream.id !== e.turnId) return yield* next(e);
+    const { ctx } = stream, source = next(e);
+    let first = null, last = null, finished = false;
+    try {
+      for (;;) {
+        const chunk = await source.next();
+        if (chunk.done) {
+          finished = true;
+          return chunk.value;
+        }
+        const part = chunk.value;
+        if (['text', 'thinking', 'tool', 'input'].includes(part.kind)) {
+          last = Date.now();
+          first ??= last;
+        } else if (part.kind === 'stop' && first !== null && last > first) {
+          recordOutputRate($, ctx, part.usage?.output_tokens, last - first);
+        }
+        yield part;
+      }
+    } finally {
+      if (!finished) {
+        try { await source.return?.(); } catch { /* Preserve the original cancellation. */ }
+      }
+    }
   });
 
   on('turn.complete', async ($, e, next) => {
@@ -244,6 +342,7 @@ export const register = (on, options = {}) => {
     try {
       ctx = await context($);
       endedTurn(ctx,e.agentId || null);
+      await endActorActivity($,ctx,e.agentId || null);
       const usage = {};
       for (const key of ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']) {
         const value = e.usage?.[key];
@@ -255,7 +354,7 @@ export const register = (on, options = {}) => {
         transcript: await transcriptCoverage($, e.agentId), git: await gitSnapshot($, ctx.root) });
     } catch { await warn($); }
     // The judge reviews in the background: the turn is handed back without waiting.
-    if (ctx && e.agentId) void refreshStatus($, ctx);
+    if (ctx) void refreshStatus($, ctx);
     if (ctx) void judgeRun($, ctx, e).then(review => review ? refreshStatus($, ctx) : null);
     return next(e);
   });

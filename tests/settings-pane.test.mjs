@@ -122,6 +122,19 @@ test('settings switches persist, and resetting rules keeps judge, lessons, exper
  const prefs=await loadProjectSettings(p.$,p.ctx);assert.deepEqual(prefs.roles,{coder:'dev'});assert.equal(prefs.judge,false);assert.equal(prefs.lessons,false);assert.equal(prefs.lessonExperiment,true);assert.deepEqual(prefs.rules,[]);
 });
 
+test('session display controls persist separately from the gate settings',async t=>{
+ const p=await pane(t);
+ await p.press('progress-checklist');
+ await p.press('progress-effects');
+ await p.press('progress-fold');
+ const saved=await loadProjectSettings(p.$,p.ctx);
+ assert.equal(saved.checklist,true);
+ assert.equal(saved.effects,false);
+ assert.equal(saved.foldAgentStrips,true);
+ assert.equal(saved.mode,'observe');
+ assert.ok(p.find('progress-update'));
+});
+
 test('reset does not overwrite valid preferences when reading them fails temporarily',async t=>{
  const p=await pane(t);await saveProjectSettings(p.$,p.ctx,{mode:'off',judge:false,roles:{coder:'review'}});
  const path=`${p.ctx.archiveRoot}/projects/${p.ctx.projectId}/preferences.json`,before=await fs.readFile(path,'utf8'),read=p.$.fs.read;
@@ -265,7 +278,7 @@ test('Vietnamese reviews translate the current page without changing the source 
  setLanguage('vi');
  await p.draw();
  const translation=p.find('translate-reviews');
- assert.equal(translation.props.label,'文 Dịch');
+ assert.equal(translation.props.label,'Dịch');
  p.$.model={complete:async()=>({isAnswered:false})};
  await p.press('translate-reviews');
  for(let n=0;n<100;n++){
@@ -275,6 +288,13 @@ test('Vietnamese reviews translate the current page without changing the source 
  }
  assert.match(p.text(),/Model chưa trả bản dịch hợp lệ/);
  assert.match(p.text(),/Pagination skips a row/);
+ p.$.model.complete=async({prompt})=>({isAnswered:true,text:prompt});
+ await p.press('translate-reviews');
+ for(let n=0;n<100 && !p.find('review-translation-message');n++){
+  await new Promise(resolve=>setTimeout(resolve,5));
+  await p.draw();
+ }
+ assert.match(p.find('review-translation-message')?.props.children ?? '',/Bản dịch giữ nguyên nội dung/);
  p.$.model={complete:async({model,prompt})=>{
   assert.equal(model,'haiku');
   assert.deepEqual(JSON.parse(prompt),['Pagination skips a row.','The review fixture proves the skipped row.']);
@@ -356,6 +376,10 @@ test('a finding is answered from the list without leaving it, and auto review re
  assert.equal(auto.data.source.origin,'ui');assert.equal(auto.data.source.model,'sonnet');
  assert.ok(p.find('confirm:'+three.slice(0,12)+'-0'),'what the model could not tell stays for the person');
  assert.match(p.text(),/1 correct, 0 wrong, 1 left for you/);
+ assert.equal(p.find('auto-review'),undefined,'an inconclusive finding belongs to manual review');
+ assert.match(p.find('review-manual-count').props.children,/1.*manual review/i);
+ await review('r4','Retryable finding');
+ await p.press('refresh-rules');
  p.$.model.complete=async()=>({isAnswered:false});
  await p.press('auto-review');
  for(let n=0;n<100;n++){
@@ -366,7 +390,41 @@ test('a finding is answered from the list without leaving it, and auto review re
  assert.match(p.text(),/1 could not be processed and are still waiting/);
  assert.match(p.text(),/The model did not return a usable answer/);
  assert.ok(p.find('confirm:'+three.slice(0,12)+'-0'));
+ assert.match(p.find('auto-review').props.label,/retry.*1/i);
  assert.equal((await readProject(p.$,p.ctx)).events.filter(e=>e.kind==='judge.decision').length,2);
+});
+
+test('Inbox translates the visible finding and its auto-review explanation',async t=>{
+ const p=await pane(t,'inbox');
+ const claim='The report omits the reconciliation result.';
+ const evidence='Only the summary was recorded.';
+ const why='The available evidence cannot resolve the finding.';
+ await emit(p.$,p.ctx,'coder','judge.review','inbox-translation',{scores:{honesty:3},
+  findings:[{severity:'medium',dimension:'honesty',claim,evidence}],exemplar:{worthy:false}});
+ setLanguage('vi');
+ await p.press('refresh-rules');
+ p.$.model={complete:async()=>({isAnswered:true,text:JSON.stringify({decision:'unsure',why})})};
+ await p.press('auto-review');
+ for(let n=0;n<100 && !p.find('review-auto-summary');n++){
+  await new Promise(resolve=>setTimeout(resolve,5));
+  await p.draw();
+ }
+ assert.match(p.find('review-auto-summary')?.props.children ?? '',/1 để bạn xem/);
+ assert.match(p.text(),/available evidence/);
+ const phrases=new Map([[claim,'Báo cáo thiếu kết quả đối soát.'],[evidence,'Chỉ có phần tóm tắt.'],
+  [why,'Bằng chứng hiện có chưa đủ để kết luận.']]);
+ p.$.model.complete=async({prompt})=>({isAnswered:true,text:JSON.stringify(JSON.parse(prompt).map(text=>phrases.get(text)))});
+ await p.press('translate-reviews');
+ for(let n=0;n<100 && !p.find('review-translation-message');n++){
+  await new Promise(resolve=>setTimeout(resolve,5));
+  await p.draw();
+ }
+ assert.match(p.find('review-translation-message')?.props.children ?? '',/Đã dịch 3 câu/);
+ assert.match(p.text(),/Báo cáo thiếu kết quả đối soát/);
+ assert.match(p.text(),/Bằng chứng hiện có chưa đủ để kết luận/);
+ await p.press('translate-reviews');
+ assert.match(p.find('review-translation-message')?.props.children ?? '',/Đã dịch/);
+ assert.equal((await readProject(p.$,p.ctx)).events.filter(event=>event.kind==='judge.decision').length,0);
 });
 
 test('session history shows the agents a session sent and opens one to what it did',async t=>{

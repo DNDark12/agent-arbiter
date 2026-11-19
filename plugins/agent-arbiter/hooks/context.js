@@ -45,6 +45,6 @@ export async function observationContext($, options = {}) {
   try{preferences=await loadProjectSettings($,ctx);}
   catch(error){if(!options.recoverPreferences)throw error;preferences={hardened:false,mode:'observe'};}
   const auth=preferences.hardened && preferences.mode==='enforce' || options.authentication ? await loadAuthentication($,ctx) : {signer:null,anchor:null,configured:false,authError:false,authReason:null};
-  return {...ctx,signer:auth.signer,anchor:auth.anchor,authConfigured:auth.configured,authError:auth.authError,authReason:auth.authReason,
+  return {...ctx,preferences,signer:auth.signer,anchor:auth.anchor,authConfigured:auth.configured,authError:auth.authError,authReason:auth.authReason,
     dataRoot:auth.anchor?`${configuredRoot}/plugins/data/agent-arbiter/v2/${auth.anchor}`:ctx.archiveRoot};
 }

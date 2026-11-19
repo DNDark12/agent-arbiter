@@ -32,6 +32,7 @@ export const ACTIONS = Object.freeze([...BUILTINS.map(rule => rule.action), 'fil
 export const EFFECTS = Object.freeze(['ask', 'deny', 'jail']);
 const MAX_RULES = 100;
 const MAX_BYTES = 128 * 1024;
+const DISPLAY_SWITCHES = ['effects', 'foldAgentStrips', 'checklist', 'autoCloseChecklist', 'outputSpeed', 'progressSounds', 'checkUpdates'];
 
 function settingsPath(ctx) {
   if (!ctx || typeof ctx.archiveRoot !== 'string' || !ctx.archiveRoot.startsWith('/') || ctx.archiveRoot.includes('\0') ||
@@ -80,9 +81,15 @@ function validate(input) {
   if (!JUDGE_MODELS.includes(judgeModel)) throw new Error('Invalid judge model');
   if (!roles || typeof roles !== 'object' || Array.isArray(roles) || Object.keys(roles).length > MAX_RULES ||
       Object.entries(roles).some(([name, role]) => !/^[A-Za-z0-9:_. -]{1,128}$/.test(name) || !ROLES.includes(role))) throw new Error('Invalid agent role');
+  const display = {};
+  for (const key of DISPLAY_SWITCHES) {
+    if (input[key] === undefined) continue;
+    if (typeof input[key] !== 'boolean') throw new Error('Invalid display preference');
+    display[key] = input[key];
+  }
   return { mode, hardened, disabledRules: [...new Set(disabledRules)], enabledRules: [...new Set(enabledRules)], rules: validated,
     lessons, judge, judgeModel, lessonExperiment, roles: Object.fromEntries(Object.entries(roles).sort(([left], [right]) => left < right ? -1 : 1)),
-    ...(input.panelPinned === true ? {panelPinned:true} : {}) };
+    ...(input.panelPinned === true ? {panelPinned:true} : {}), ...display };
 }
 
 export async function loadProjectSettings($, ctx) {

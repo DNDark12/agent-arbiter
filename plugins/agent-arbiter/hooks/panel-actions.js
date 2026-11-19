@@ -4,8 +4,9 @@ import {updateProjectSettings,resetProjectRules} from './project-rules.js';
 import {forgetCaches} from './events.js';
 import {resetDiscipline} from './discipline.js';
 import {resetEnforcement,setMasterEnabled} from './control-state.js';
-import {refreshStatus} from './status.js';
+import {refreshStatus,setSounds} from './status.js';
 import {setLanguage,t} from './i18n.js';
+import {forgetActivity} from './notes.js';
 
 export async function changeProjectMode($,ctx,mode) {
   if (!['enforce','observe','off'].includes(mode)) throw new Error('Invalid project mode');
@@ -19,18 +20,18 @@ export async function resetRules($,ctx) {
   return resetProjectRules($,ctx);
 }
 
-export async function globalConfig($) {
-  return (await $.config.list()).filter(row=>['agent-arbiter.enabled','agent-arbiter.language'].includes(row.key));
-}
+const GLOBAL_KEYS = ['agent-arbiter.enabled','agent-arbiter.language','agent-arbiter.sounds'];
+export async function globalConfig($) { return (await $.config.list()).filter(row=>GLOBAL_KEYS.includes(row.key)); }
 
 export async function changeGlobalConfig($,key,value) {
-  if (!['agent-arbiter.enabled','agent-arbiter.language'].includes(key)) throw new Error('Invalid Arbiter configuration key');
+  if (!GLOBAL_KEYS.includes(key)) throw new Error('Invalid Arbiter configuration key');
   const row = (await globalConfig($)).find(row=>row.key===key);
   if (!row) throw new Error(t('settings.configUnavailable'));
   if (row.isLocked) throw new Error(t('settings.locked'));
   const result = await $.config.set({key,value});
   if (result.deny) throw new Error(result.deny);
   if (key==='agent-arbiter.enabled') setMasterEnabled(result.value);
+  else if (key==='agent-arbiter.sounds') setSounds(result.value);
   else setLanguage(result.value,await $.env.get('LC_ALL') || await $.env.get('LANG') || '');
   return result.value;
 }
@@ -46,6 +47,7 @@ export async function purgeData($,ctx,all=false) {
   const result=await $.process.run(['/bin/rm','-rf','--',...targets]);
   forgetCaches();resetDiscipline();
   if (result.exitCode!==0) throw new Error(t('cmd.purgeFailed',{error:`exit ${result.exitCode}`}));
+  forgetActivity(ctx,all);
   resetEnforcement(all?null:ctx);
   try { $.ui.status(undefined); } catch { /* Best effort. */ }
   return {deleted:true,text:t('cmd.purged',{scope})};

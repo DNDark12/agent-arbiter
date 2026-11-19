@@ -10,7 +10,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const BATCH = 100;
 // Only these kinds are ever removed; a kind not listed here is kept.
 const ROUTINE = new Set(['tool.request', 'tool.result', 'turn.complete', 'session.start', 'spawn.request',
-  'rule.decision', 'tool.consent', 'policy.preview', 'acceptance.delivery']);
+  'rule.decision', 'tool.consent', 'policy.preview', 'acceptance.delivery', 'progress.wait', 'progress.check', 'progress.tasks']);
 
 function citedIds(events) {
   const cited = new Set();

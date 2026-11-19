@@ -15,7 +15,7 @@ import {reduceCases} from './cases.js';
 import {recordHardLaw} from './court.js';
 import {actorSentence,stopForHandover} from './prison.js';
 import {worktreeRoots} from './forensics.js';
-import {noteDecision} from './notes.js';
+import {beginWait,noteDecision} from './notes.js';
 
 const block=reason=>({deny:'Agent Arbiter: '+reason});
 const turnBoundaries=new Map();
@@ -27,7 +27,9 @@ async function askUnknown($,ctx,event){
   const inputHash=await digest(canonical(event));
   const detail=redact(event.command || event.file_path || event.notebook_path || JSON.stringify(Object.keys(event)));
   let answer='';
+  const settle=beginWait($,ctx,event.agentId || null,event.tool_use_id || crypto.randomUUID(),'approval');
   try{answer=await $.ui.ask(`Agent Arbiter cannot prove action/scope for ${event.tool}, actor ${event.agentId || 'main'}, project ${ctx.projectRoot}. Requested input: ${detail}. Check the original tool panel if redacted/truncated. Allow only this tool call ${event.tool_use_id || inputHash} (hash ${inputHash})? This is not a reusable grant.`,['Deny','Allow']);}catch{ /* No answer never grants. */ }
+  finally{await settle();}
   if(answer!=='Allow')return block('consent declined or unavailable; no violation recorded.');
   if(inputHash!==await digest(canonical(event)) || !(await runtimeReady($,ctx)).ready)return block('request or protected runtime changed during consent.');
   const read=await readProject($,ctx);
@@ -245,8 +247,10 @@ async function enforceDefault($,ctx,event,state,requestId){
   const who=actor?t('actor.agent',{name:citizen?citizen.name+(citizen.model?' ('+citizen.model+')':''):actor}):t('actor.main');
   const command=typeof event.command==='string'?t('ask.command',{command:redact(event.command).slice(0,300)}):'';
   let answer='';
+  const settle=beginWait($,ctx,actor,event.tool_use_id || crypto.randomUUID(),'approval');
   // Allow first: the common answer is one keystroke. Skip or dismiss still never grants.
   try{answer=await $.ui.ask(t('ask.question',{actor:who,detail:receipt.detail,command,rules:decision.rules.map(ruleLabel).join('; ')}),[labels.once,labels.session,labels.deny]);}catch{ /* Dismissed/unavailable never grants. */ }
+  finally{await settle();}
   if(answer!==labels.once && answer!==labels.session){
     const refused=answer===labels.deny;
     if(refused && actor)rememberRefusal(ctx,actor,keys);

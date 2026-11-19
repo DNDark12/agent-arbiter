@@ -3,8 +3,11 @@ import { ACTIONS, EFFECTS, JUDGE_MODELS, loadProjectSettings, updateProjectSetti
 import { disciplineState, docket, releaseViolations } from './discipline.js';
 import { t, ruleLabel, actionLabel, currentLanguage } from './i18n.js';
 import { checkFinding, translateTexts, translated } from './review-assist.js';
-import { sessionTimeline, recentSessions } from './history.js';
-import { timelineRow } from './history-view.js';
+import { sessionTimeline, recentSessions, durationText } from './history.js';
+import { checklistView, sessionProgressDetails, timelineRow } from './history-view.js';
+import { pendingWaits } from './notes.js';
+import { checklistOf, registerChecklistTool, saveChecklist } from './checklist.js';
+import { loadedVersion, updateAvailability, updatePlugin } from './update.js';
 import { progressGraph, progressItems, progressTitle } from './progress-view.js';
 import { readProjectShared } from './events.js';
 import {reduceScores,allProjectScoreRows,scoreUsage} from './scoring.js';
@@ -28,7 +31,7 @@ function stateFor(ctx){
   const id=sessionKey(ctx);
   if(!states.has(id))states.set(id,{tab:'inbox',scope:'project',search:'',group:'all',editor:null,confirm:null,message:'',
     pending:false,maintenance:false,diagnostics:null,data:null,pages:{},violationFilter:'all',agentSection:'scores',scoreScope:'project',scoreKind:'all',agentSearch:'',lessonScope:'project',reviewFilter:'pending',detail:null,
-    busy:new Set(),autoRun:null,autoNotes:new Map(),translating:false,pinChecked:false,pinOpening:false,opened:false,dismissed:false});
+    busy:new Set(),autoRun:null,autoResult:null,autoNotes:new Map(),translating:false,translationMessage:null,pinChecked:false,pinOpening:false,opened:false,dismissed:false});
   return states.get(id);
 }
 const inScope=(ctx,state,item)=>state.scope==='project' || item.sessionId===ctx.sessionId;
@@ -276,38 +279,52 @@ async function decide($,ctx,kind,ref,decision,extra={}){
 }
 // The person's own button: the judge model checks each waiting finding in turn and
 // its answer is recorded as theirs, marked automatic. What it cannot tell stays.
+const canAutoReview=(state,finding)=>finding.state==='open' && state.autoNotes.get(finding.ref)?.decision!=='unsure';
 async function autoReview($,ctx,state,settings){
   if(state.autoRun)return;
-  const items=(state.data?.reviews ?? []).flatMap(review=>review.findings.filter(finding=>finding.state==='open').map(finding=>({review,finding})));
+  const items=(state.data?.reviews ?? []).flatMap(review=>review.findings.filter(finding=>canAutoReview(state,finding)).map(finding=>({review,finding})));
+  if(!items.length)return;
   const model=settings.judgeModel ?? JUDGE_MODEL,run={done:0,total:items.length,confirmed:0,dismissed:0,unsure:0,failed:0};
-  state.autoRun=run;state.message='';redraw($);
+  state.autoRun=run;state.autoResult=null;state.message='';redraw($);
   try{
     for(const {review,finding} of items){
       let verdict=null;
       try{verdict=await checkFinding($,ctx,review,finding,model);}catch{ /* The finding stays open. */ }
-      if(!verdict){run.failed+=1;state.autoNotes.set(finding.ref,t('pane.autoModelFailed'));}
-      else if(verdict.decision==='unsure'){run.unsure+=1;state.autoNotes.set(finding.ref,verdict.why || t('pane.autoUnsure'));}
+      if(!verdict){run.failed+=1;state.autoNotes.set(finding.ref,{decision:'failed'});}
+      else if(verdict.decision==='unsure'){run.unsure+=1;state.autoNotes.set(finding.ref,verdict);}
       else if(await decide($,ctx,'finding',finding.ref,verdict.decision,{auto:true,model})){
         run[verdict.decision]+=1;state.autoNotes.delete(finding.ref);
-      }else{run.failed+=1;state.autoNotes.set(finding.ref,state.message);}
+      }else{run.failed+=1;state.autoNotes.set(finding.ref,{decision:'failed',why:state.message});}
       run.done+=1;redraw($);
     }
   }finally{
-    state.autoRun=null;state.message=t('pane.autoDone',run)+(run.failed?' '+t('pane.autoFailed',run):'');redraw($);
+    state.autoRun=null;state.autoResult=run;state.message='';redraw($);
   }
 }
-async function translatePage($,state,reviews){
+async function translatePage($,state,reviews,view){
   if(state.translating)return;
   const language=currentLanguage();
-  state.translating=true;redraw($);
+  state.translating=true;state.translationMessage=null;redraw($);
   try{
-    const texts=reviews.flatMap(review=>[...review.findings.flatMap(finding=>[finding.claim,finding.evidence]),review.exemplar.why]);
-    const added=await translateTexts($,texts,language);
-    state.message=added?t('pane.translated',{count:added}):t('pane.translateNone');
-  }catch{state.message=t('pane.translationUnavailable');}
+    const texts=reviews.flatMap(review=>[...review.findings.flatMap(finding=>[
+      finding.claim,finding.evidence,state.autoNotes.get(finding.ref)?.why,
+    ]),review.exemplar.why]);
+    const {added,requested}=await translateTexts($,texts,language);
+    const key=added?'pane.translated':requested?'pane.translationUnchanged':'pane.translateNone';
+    state.translationMessage={view,key,count:added};
+  }catch{state.translationMessage={view,key:'pane.translationUnavailable'};}
   finally{state.translating=false;redraw($);}
 }
 const shown=text=>translated(text,currentLanguage()) ?? text;
+function translationControls($,h,state,reviews,view){
+  if(currentLanguage()==='en' || !reviews.length)return [];
+  return [
+    h.Button({key:'translate-reviews',label:t(state.translating?'pane.translating':'pane.translateAction'),
+      onPress:()=>{void translatePage($,state,reviews,view);}}),
+    ...(state.translationMessage?.view===view?[h.Text({key:'review-translation-message',
+      children:t(state.translationMessage.key,state.translationMessage)})]:[]),
+  ];
+}
 function roleSelect($,h,ctx,name,settings){
   return h.Select({key:'role:'+name,label:t('settings.role'),value:settings.roles[name] || 'auto',
     options:['auto',...ROLES].map(value=>({value,label:value==='auto'?t('settings.automatic'):t('role.'+value)})),
@@ -389,15 +406,19 @@ function reviewsView($,h,ctx,state,settings,data,inbox=false){
   const kindOf=review=>pending(review)?'pending':suggested(review)?'suggested':'completed';
   const rows=[...data.reviews].reverse().filter(review=>inbox?kindOf(review)!=='completed':state.reviewFilter==='all' || kindOf(review)===state.reviewFilter);
   const noted=data.reviews.reduce((sum,review)=>sum+review.findings.filter(finding=>finding.state==='noted').length,0);
-  const waitingCount=data.reviews.reduce((sum,review)=>sum+review.findings.filter(finding=>finding.state==='open').length,0);
+  const waiting=data.reviews.flatMap(review=>review.findings.filter(finding=>finding.state==='open'));
+  const eligible=waiting.filter(finding=>canAutoReview(state,finding));
+  const manualCount=waiting.length-eligible.length;
+  const retry=eligible.length>0 && eligible.every(finding=>state.autoNotes.get(finding.ref)?.decision==='failed');
   const answer=(key,label,ref,run)=>h.Button({key,label:state.busy.has(ref)?t('settings.working'):label,onPress:()=>state.busy.has(ref) || state.autoRun?undefined:run()});
   const {visible,controls}=paged($,h,state,inbox?'inbox-reviews':'reviews',rows),usage=judgeUsage(data.projectEvents,ctx.projectId);
-  const canTranslate=currentLanguage()!=='en' && visible.length>0;
+  const translation=translationControls($,h,state,visible,(inbox?'inbox:':'list:')+visible.map(review=>review.id).join(':'));
   const detail=state.detail?.kind==='review'?data.reviews.find(review=>review.id===state.detail.id):null;
   if(detail)return h.Box({flexDirection:'column',gap:1,children:[
     iconButton(h,'back-reviews','←',()=>change($,state,{detail:null})),
     h.Text({bold:true,children:`${t('settings.details')} · ${detail.citizen?.kind==='main'?t('pane.agentKind.main'):detail.citizen?.name || 'agent'}`}),
     h.Text({dimColor:true,children:`${localTime(detail.at)} · ${detail.ref}`}),
+    ...translationControls($,h,state,[detail],'detail:'+detail.id),
     ...Object.entries(detail.scores).map(([dimension,score])=>h.Text({children:`${t('dimension.'+dimension)}: ${score===null?t('tbl.undetermined'):t('score.outOf5',{value:score})}`})),
     ...(detail.findings.some(finding=>['open','noted'].includes(finding.state))?[h.Text({dimColor:true,children:t('pane.findingHint')})]:[]),
     ...detail.findings.map(finding=>h.Box({flexDirection:'column',gap:1,children:[
@@ -420,18 +441,22 @@ function reviewsView($,h,ctx,state,settings,data,inbox=false){
       h.Text({dimColor:true,children:t('pane.reviewsHint')}),
       ...(noted?[h.Text({dimColor:true,children:t('pane.autoNoted',{count:noted})})]:[]),
     ]),
-    ...(state.autoRun?[h.Text({children:t('pane.autoRunning',state.autoRun)})]:waitingCount||canTranslate?[h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',children:[
-      ...(waitingCount?[h.Button({key:'auto-review',label:t('pane.auto',{count:waitingCount}),onPress:()=>{void autoReview($,ctx,state,settings);}})]:[]),
-      ...(canTranslate?[h.Button({key:'translate-reviews',label:'文 '+t(state.translating?'pane.translating':'pane.translateAction'),onPress:()=>{void translatePage($,state,visible);}})]:[]),
+    ...(state.autoRun?[h.Text({children:t('pane.autoRunning',state.autoRun)})]:eligible.length||translation.length?[h.Box({flexDirection:'row',gap:1,alignItems:'center',flexWrap:'wrap',children:[
+      ...(eligible.length?[h.Button({key:'auto-review',label:t(retry?'pane.autoRetry':'pane.auto',{count:eligible.length}),onPress:()=>{void autoReview($,ctx,state,settings);}})]:[]),
+      ...translation,
     ]})]:[]),
-    ...(!inbox && waitingCount && !state.autoRun?[h.Text({dimColor:true,children:t('pane.autoHint',{model:settings.judgeModel ?? JUDGE_MODEL})})]:[]),
+    ...(state.autoResult?[h.Text({key:'review-auto-summary',
+      children:t('pane.autoDone',state.autoResult)+(state.autoResult.failed?' '+t('pane.autoFailed',state.autoResult):'')})]:[]),
+    ...(manualCount?[h.Text({key:'review-manual-count',children:t('pane.autoManual',{count:manualCount})})]:[]),
+    ...(!inbox && eligible.length && !state.autoRun?[h.Text({dimColor:true,children:t('pane.autoHint',{model:settings.judgeModel ?? JUDGE_MODEL})})]:[]),
     ...(inbox?[]:[h.Select({key:'review-filter',label:t('settings.filter'),value:state.reviewFilter,options:['pending','suggested','completed','all'].map(value=>({value,label:t('settings.'+value)})),onSelect:value=>{state.pages.reviews=0;change($,state,{reviewFilter:value,detail:null});}})]),
     ...(visible.length?visible.map(review=>h.Box({key:'review-row:'+review.id,flexDirection:'column',gap:1,children:[
       h.Box({flexDirection:'row',alignItems:'center',gap:1,children:[
         roleIcon(h,state.surface,review.citizen?.kind==='main'?'main':review.role,24,{animate:true},t('role.'+review.role)),
         h.Box({flexDirection:'row',flexWrap:'wrap',flexShrink:1,columnGap:1,children:[
           h.Text({bold:true,children:review.citizen?.kind==='main'?t('pane.agentKind.main'):review.citizen?.name || 'agent'}),
-          h.Text({dimColor:true,children:inbox?localTime(review.at):`${localTime(review.at)} · ${t('role.'+review.role)} · ${t('difficulty.'+review.difficulty)}`}),
+          h.Text({dimColor:true,children:`${localTime(review.at)}${inbox?(pending(review)?' · '+t('progress.waitAge',{time:durationText(Date.now()-review.at)}):''):
+            ' · '+t('role.'+review.role)+' · '+t('difficulty.'+review.difficulty)}`}),
         ]}),
       ]}),
       ...(inbox?[]:[levelRow(h,state.surface,{key:'quality',label:t('score.quality'),figure:review.quality===null?t('score.notReviewed'):t('score.outOf100',{value:review.quality}),
@@ -439,7 +464,8 @@ function reviewsView($,h,ctx,state,settings,data,inbox=false){
       // What waits is shown here with its two answers, so a decision needs no trip into the details.
       ...review.findings.filter(finding=>finding.state==='open').map(finding=>h.Box({key:'open:'+finding.ref,flexDirection:'column',gap:1,children:[
         h.Text({...(inbox?{maxLines:2,wrap:'truncate'}:{}),children:`${t('severity.'+finding.severity)} · ${t('dimension.'+finding.dimension)}: ${shown(finding.claim)}`}),
-        ...(state.autoNotes.has(finding.ref)?[h.Text({dimColor:true,children:t('pane.autoNote',{why:shown(state.autoNotes.get(finding.ref))})})]:[]),
+        ...(state.autoNotes.has(finding.ref)?[h.Text({dimColor:true,children:t('pane.autoNote',{why:shown(state.autoNotes.get(finding.ref).why)
+          || t(state.autoNotes.get(finding.ref).decision==='unsure'?'pane.autoUnsure':'pane.autoModelFailed')})})]:[]),
         h.Box({flexDirection:'row',gap:1,children:[
           answer('confirm:'+finding.ref,t('pane.confirmFinding'),finding.ref,()=>decide($,ctx,'finding',finding.ref,'confirmed')),
           answer('dismiss:'+finding.ref,t('pane.dismissFinding'),finding.ref,()=>decide($,ctx,'finding',finding.ref,'dismissed')),
@@ -458,12 +484,13 @@ function reviewsView($,h,ctx,state,settings,data,inbox=false){
 }
 // The sessions of this project and, for the one chosen, the thread of its main
 // agent with a branch for every agent it sent; a run opens to what it did.
-function historyView($,h,ctx,state,data){
-  const sessions=recentSessions(data.events,ctx.projectId,20);
+async function historyView($,h,ctx,state,settings,data){
+  const events=(await readProjectShared($,ctx)).events.filter(event=>inScope(ctx,state,event));
+  const sessions=recentSessions(events,ctx.projectId,20);
   const chosen=sessions.some(session=>session.sessionId===state.historySession)?state.historySession:
     sessions.some(session=>session.sessionId===ctx.sessionId)?ctx.sessionId:sessions[0]?.sessionId;
   if(!chosen)return h.Text({dimColor:true,children:t('history.empty')});
-  const timeline=sessionTimeline(data.events,ctx.projectId,chosen,{discipline:data.discipline,reviews:data.reviews});
+  const timeline=sessionTimeline(events,ctx.projectId,chosen,{discipline:data.discipline,reviews:data.reviews});
   const picker=state.scope==='project'?[h.Select({key:'history-session',label:t('history.session'),value:chosen,options:sessions.map(session=>({value:session.sessionId,
     label:`${session.sessionId===ctx.sessionId?t('history.thisSession')+' · ':''}${localTime(session.endedAt)} · ${t('history.sessionFigure',{agents:session.agents,calls:session.calls})}`})),
     onSelect:value=>{state.pages.history=0;change($,state,{historySession:value,detail:null});}})]:[];
@@ -479,8 +506,24 @@ function historyView($,h,ctx,state,data){
     ...(agent.reviewId?[h.Button({key:'run-review',label:t('history.openReview'),onPress:()=>change($,state,{agentSection:'reviews',reviewFilter:'all',detail:{kind:'review',id:agent.reviewId}})})]:[]),
   ]});
   const runs=timeline?.agents ?? [];
+  let contextPercent=null;
+  if(chosen===ctx.sessionId){
+    try{contextPercent=(await $.session.usage()).context?.percent;}catch{ /* Usage may not be available yet. */ }
+  }
+  const checklist=settings.checklist?checklistOf(events,chosen):null;
+  const expanded=state.checklistSession===chosen;
   const {visible,controls}=paged($,h,state,'history',[...runs].reverse(),20);
   return h.Box({flexDirection:'column',gap:1,children:[...picker,
+    ...sessionProgressDetails(h,timeline,contextPercent),
+    ...(checklist?checklistView(h,checklist,timeline.main.calls,{expanded,
+      toggle:()=>change($,state,{checklistSession:expanded?null:chosen}),
+      clear:chosen===ctx.sessionId?()=>runAction($,ctx,async()=>{
+        if(await $.session.id()!==ctx.sessionId)throw new Error(t('panel.threadChanged'));
+        await saveChecklist($,ctx,crypto.randomUUID(),{type:'clear',source:'report'});
+        await refreshStatus($,ctx);
+        return t('progress.cleared');
+      }):null,
+    }):[]),
     h.Box({flexDirection:'column',children:[
       timelineRow(h,state.surface,{main:true,...timeline.main},{lanes:timeline.lanes,first:true,last:!runs.length}),
       ...visible.map((run,index)=>timelineRow(h,state.surface,run,{lanes:timeline.lanes,last:index===visible.length-1,
@@ -492,7 +535,7 @@ function historyView($,h,ctx,state,data){
 async function citizensView($,h,ctx,state,settings){
   const data=await dataset($,ctx,state,settings);
   const body=state.agentSection==='lessons'?await lessonsView($,h,ctx,state,settings,data):state.agentSection==='reviews'?reviewsView($,h,ctx,state,settings,data):
-    state.agentSection==='history'?historyView($,h,ctx,state,data):await scoresView($,h,ctx,state,settings,data);
+    state.agentSection==='history'?await historyView($,h,ctx,state,settings,data):await scoresView($,h,ctx,state,settings,data);
   return h.Box({flexDirection:'column',gap:1,children:[
     h.Select({key:'agent-section',label:t('settings.agentSection'),value:state.agentSection,options:Object.entries(SECTION_ICONS).map(([value,icon])=>({value,label:icon+' '+t('settings.section.'+value)})),onSelect:value=>change($,state,{agentSection:value,detail:null,data:null})}),body,
   ]});
@@ -501,6 +544,7 @@ async function settingsView($,h,ctx,state,settings){
   let configs=[];
   try{configs=await globalConfig($);}catch{ /* Project preferences still work. */ }
   const enabled=configs.find(row=>row.key==='agent-arbiter.enabled'),language=configs.find(row=>row.key==='agent-arbiter.language');
+  const sounds=configs.find(row=>row.key==='agent-arbiter.sounds'), version=await loadedVersion($);
   const group=(label,children)=>h.Box({flexDirection:'column',gap:1,children:[h.Text({bold:true,children:label}),...children]});
   const toggle=(key,label,value,onPress,locked=false)=>{
     const status=t(value?'pane.toggle.on':'pane.toggle.off');
@@ -509,6 +553,14 @@ async function settingsView($,h,ctx,state,settings){
       h.Button({key,label:status,onPress}),
     ]});
   };
+  const display=(key,prop,value=settings[prop]===true)=>toggle('progress-'+key,t('progress.setting.'+key),value,
+    ()=>runAction($,ctx,async()=>{
+      const saved=await updateProjectSettings($,ctx,latest=>({...latest,[prop]:!(prop==='effects'?latest.effects!==false:latest[prop]===true)}));
+      if(prop==='checklist' && saved.checklist){
+        try{await registerChecklistTool($);}catch{ /* The next session can register it. */ }
+      }
+      await refreshStatus($,ctx);
+    }));
   return h.Box({flexDirection:'column',gap:2,children:[
     group(t('settings.project'),[
       h.Select({key:'court-mode',label:t('pane.mode'),value:settings.mode,options:['enforce','observe','off'].map(value=>({value,label:t('pane.modeLabel.'+value)})),onSelect:value=>runAction($,ctx,async()=>{await changeProjectMode($,ctx,value);})}),
@@ -525,7 +577,26 @@ async function settingsView($,h,ctx,state,settings){
       ...(language?[h.Select({key:'global-language',label:t('pane.language')+(language.isLocked?' · '+t('settings.locked'):''),value:language.value,options:['auto','en','vi'].map(value=>({value,label:value==='auto'?t('settings.automatic'):value==='vi'?'Tiếng Việt':'English'})),onSelect:value=>runAction($,ctx,async()=>{
         await changeGlobalConfig($,language.key,value);return t('settings.savedGlobal');
       })})]:[]),
+      ...(sounds?[toggle('global-sounds',t('progress.setting.sounds'),sounds.value,
+        ()=>runAction($,ctx,async()=>{await changeGlobalConfig($,sounds.key,!sounds.value);return t('settings.savedGlobal');}),sounds.isLocked)]:[]),
       ...(!enabled || !language?[h.Text({dimColor:true,children:t('settings.configUnavailable')})]:[]),
+    ]),
+    group(t('progress.settings'),[
+      display('effects','effects',settings.effects!==false),
+      display('fold','foldAgentStrips'),
+      display('checklist','checklist'),
+      ...(settings.checklist?[display('autoclose','autoCloseChecklist')]:[]),
+      display('speed','outputSpeed'),
+      display('chimes','progressSounds'),
+    ]),
+    group(t('progress.updates'),[
+      ...(version?[h.Text({key:'progress-version',children:t('progress.version',{version})})]:[]),
+      display('update-check','checkUpdates'),
+      h.Box({flexDirection:'row',gap:1,flexWrap:'wrap',children:[
+        ...(settings.checkUpdates?[h.Button({key:'progress-check-now',label:t('progress.checkNow'),
+          onPress:()=>{void runAction($,ctx,async()=>{const result=await updateAvailability($);return t('progress.update.'+result.status,result);});}})]:[]),
+        h.Button({key:'progress-update',label:t('progress.updateAction'),onPress:()=>{void runAction($,ctx,()=>updatePlugin($));}}),
+      ]}),
     ]),
     h.Box({flexDirection:'column',gap:1,children:[
       h.Button({key:'show-maintenance',label:(state.maintenance?'▾ ':'▸ ')+t('settings.data'),plain:true,
@@ -557,13 +628,17 @@ async function inboxView($,h,ctx,state,settings){
   const data=await dataset($,ctx,state,settings);
   const detained=docket(data.discipline,Number.MAX_SAFE_INTEGER).filter(record=>record.sanction==='detain' && record.status==='active');
   const needsReview=data.reviews.some(review=>review.exemplar.state==='candidate' || review.findings.some(finding=>finding.state==='open'));
+  const waits=pendingWaits(ctx);
   const section=(role,label,options={})=>h.Box({flexDirection:'row',alignItems:'center',gap:1,children:[
     roleIcon(h,state.surface,role,18,options,label),h.Text({bold:true,children:label}),
   ]});
   return h.Box({key:'panel-inbox',flexDirection:'column',gap:1,children:[
+    ...(waits.length || detained.length || needsReview?[h.Text({bold:true,children:t('progress.waiting')})]:[]),
+    ...waits.map(wait=>h.Text({key:'wait:'+wait.key,children:t('progress.wait.'+wait.kind,{time:durationText(Date.now()-wait.startedAt)})})),
     ...(detained.length?[section('other',t('overview.detained'),{detained:true}),
       ...detained.slice(0,3).map(record=>h.Box({key:'inbox-detention:'+record.id,flexDirection:'row',gap:1,alignItems:'center',children:[
-        h.Box({flexGrow:1,flexShrink:1,minWidth:0,children:[h.Text({maxLines:1,wrap:'truncate',children:record.who})]}),
+        h.Box({flexGrow:1,flexShrink:1,minWidth:0,children:[h.Text({maxLines:1,wrap:'truncate',
+          children:record.who+' · '+t('progress.waitAge',{time:durationText(Date.now()-record.at)})})]}),
         h.Button({key:'inbox-release:'+record.id,label:t('settings.details'),plain:true,onPress:()=>{
           focusOn(state,'jail');change($,state,{detail:{kind:'violation',id:record.id}});
         }}),
@@ -572,8 +647,8 @@ async function inboxView($,h,ctx,state,settings){
         focusOn(state,'jail');change($,state,{detail:null});
       }}),
     ]:[]),
-    ...(needsReview || state.autoRun?[section('review',t('panel.reviews')),reviewsView($,h,ctx,state,settings,data,true)]:[]),
-    ...(!detained.length && !needsReview && !state.autoRun?[h.Text({dimColor:true,children:t('overview.calm')})]:[]),
+    ...(needsReview || state.autoRun || state.autoResult?[section('review',t('panel.reviews')),reviewsView($,h,ctx,state,settings,data,true)]:[]),
+    ...(!waits.length && !detained.length && !needsReview && !state.autoRun && !state.autoResult?[h.Text({dimColor:true,children:t('overview.calm')})]:[]),
   ]});
 }
 
@@ -632,12 +707,12 @@ export function registerRulesPane(on,failures=()=>0){
         h.Text({bold:true,children:ctx.projectRoot.split('/').filter(Boolean).at(-1) || '/'}),
         h.Box({key:'panel-status',flexDirection:'row',alignItems:'center',gap:1,children:[
           h.Text({dimColor:true,children:!masterIsEnabled()?t('settings.disabledGlobally'):settings?t('pane.modeLabel.'+settings.mode):t('pane.unavailable')}),
-          ...(settings?[iconButton(h,'refresh-rules','↻',()=>refreshPane($,ctx,state,failures))]:[]),
+          iconButton(h,'refresh-rules','↻',()=>refreshPane($,ctx,state,failures)),
         ]}),
       ]}),
       ...(settings && !state.confirm && !state.editor && (showScope || e.surface==='desktop')?[h.Box({flexDirection:'row',alignItems:'center',flexWrap:'wrap',gap:1,children:[
         ...(showScope?[h.Select({key:'panel-scope',value:state.scope,options:['thread','project'].map(value=>({value,label:t('panel.scope.'+value)})),
-          onSelect:value=>{if(!state.pending && !state.autoRun)change($,state,{scope:value,data:null,pages:{},scoreScope:'project',historySession:null,detail:null,message:''});}})]:[]),
+          onSelect:value=>{if(!state.pending && !state.autoRun)change($,state,{scope:value,data:null,pages:{},scoreScope:'project',historySession:null,detail:null,message:'',autoResult:null,translationMessage:null});}})]:[]),
         ...(e.surface==='desktop'?[h.Button({key:'pin-project',label:t(settings.panelPinned?'panel.unpin':'panel.pin'),plain:true,
           onPress:()=>mutate($,ctx,latest=>({...latest,panelPinned:!latest.panelPinned}))})]:[]),
       ]})]:[]),

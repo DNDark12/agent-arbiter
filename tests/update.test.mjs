@@ -93,6 +93,25 @@ test('a copy loaded from a source folder is not updated', async () => {
   assert.equal(runs.length, 0);
 });
 
+test('opt-in update check respects traffic restrictions and only reads the official manifest', async () => {
+  const { updateAvailability } = await import('../plugins/agent-arbiter/hooks/update.js');
+  const { $, runs } = host();
+  let reads = 0, restricted = '1';
+  const env = $.env.get;
+  $.env.get = async key => key === 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC' ? restricted : env(key);
+  $.http = { fetch: async url => {
+    reads++;
+    assert.equal(url, 'https://raw.githubusercontent.com/DNDark12/agent-arbiter/main/plugins/agent-arbiter/.claude-plugin/plugin.json');
+    return { ok:true, text:'{"name":"agent-arbiter","version":"1.10.0"}' };
+  } };
+  assert.equal((await updateAvailability($)).status, 'disabled');
+  assert.equal(reads, 0);
+  restricted = '';
+  assert.deepEqual(await updateAvailability($), { status:'available', version:'1.10.0' });
+  assert.equal(reads, 1);
+  assert.equal(runs.length, 0);
+});
+
 test('only a person can run update: a plugin or SDK origin is refused', async () => {
   setLanguage('en');
   const { $, runs } = host();

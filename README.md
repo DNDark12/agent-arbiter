@@ -43,6 +43,8 @@ Requires Claude Code 2.1.325 or later, on macOS or Linux.
 - **Judge.** Advisory reviews of main agent turns and subagent runs with recorded work evidence. A finding counts only when you confirm it.
 - **Band and notes.** A band above the prompt shows only what waits for you: detained agents, and review decisions as a bar of decided against waiting. **Open** goes straight to them without a line in the chat, and a toast says when something new arrives. Under each tool call Arbiter stopped to check, a short note names the rule and what came of it. The desktop app's right-click menu opens the panel too.
 - **Role icons.** Each agent role has a pixel icon that idles with a small bob and blink, held still when your system asks for reduced motion; a detained agent stands behind bars. Scores, quality and clean runs are drawn as bars against their known totals.
+- **Session activity.** Open the agent strip to see a subagent's current tool and elapsed time. Inbox shows open questions and approval dialogs the plugin observes. Agents → Session History shows reported token usage, prompt wait time, context for the current session, and failed or unconfirmed checks. A successful retry of the same check closes a recorded failure.
+- **Checklist.** Turn it on in Settings → Session display. The plugin observes native task calls where available. In sessions without them the main agent can declare and update tasks with the optional session progress tool. History keeps the list for resume. Settings can fold agent strips, hide the finished checklist bar, control effects and sounds, and show the measured output rate.
 
 ## Usage
 
@@ -96,9 +98,13 @@ claude plugin update agent-arbiter@agent-arbiter
 
 Start a new Claude Code session after updating. Existing project preferences and Arbiter data are kept.
 
+Settings shows the loaded version and an Update button. Enable the update check to compare an official marketplace installation with the public manifest on GitHub. The check respects Claude Code's nonessential-traffic setting.
+
 ## Data and privacy
 
 Data stays on your machine in `~/.claude/plugins/data/agent-arbiter/`. Prompts, code and tool output are not stored. Routine records are removed after 30 days.
+
+Session progress records use timings, verification categories and fingerprints, and short redacted checklist labels. History reports when older measurements are incomplete.
 
 The judge sends the brief, the final report and up to three written files to the model through your own session, with secrets masked. For a main-agent turn the brief is the prompt you typed for that turn. It runs at most 20 times a day per project, of which main-agent turns may use at most 10, and can be switched off with `/arbiter judge off`.
 
