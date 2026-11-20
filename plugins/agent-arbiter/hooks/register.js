@@ -30,6 +30,12 @@ let sequence = 0;
 const boot = crypto.randomUUID();
 function armed(){return !courtDisabled() && (protectionArmed() || enforcementArmed());}
 
+const approvalKey = e => canonical([e.tool_use_id, e.tool, e.agentId ?? null]);
+function approvalInputHash(e) {
+  const { requestMeta, ...input } = e;
+  return digest(canonical(input));
+}
+
 
 async function warn($) {
   failures += 1;
@@ -82,6 +88,7 @@ async function summary($, cleanup = false) {
 /** @type {import('claude-code').Register} */
 export const register = (on, options = {}) => {
   let stream = null;
+  const hostApprovals = new Map();
   setMasterEnabled(options.enabled);
   setLanguage(options.language);
   setSounds(options.sounds);
@@ -173,6 +180,30 @@ export const register = (on, options = {}) => {
     return result;
   }).catch(($,e,next)=>next.called?next(e):armed()?{deny:'Agent Arbiter spawn gate failed.'}:next(e));
 
+  // SDK clients render the original call's permission request. A nested
+  // AskUserQuestion can leave an unmatched synthetic call in their stream.
+  on('tool.check', async ($, e, next) => {
+    const pending = next.origin?.plugin === 'engine' && hostApprovals.get(approvalKey(e));
+    const original = await next(e);
+    if (!pending || original.decision === 'deny') return original;
+    if (!e.approver) return { decision: 'deny', reason: pending.reason };
+    pending.settle ??= beginWait($, pending.ctx, e.agentId ?? null, e.tool_use_id, 'approval');
+    return { decision: 'ask', reason: pending.reason };
+  }).catch(($, e, next) => next.origin?.plugin === 'engine' && hostApprovals.has(approvalKey(e))
+    ? { decision: 'deny', reason: 'Agent Arbiter: could not verify host approval.' } : next(e));
+
+  on('tool.run', async ($, e, next) => {
+    const pending = next.origin?.plugin === 'engine' && hostApprovals.get(approvalKey(e));
+    if (!pending) return next(e);
+    if (!pending.settle || pending.inputHash !== await approvalInputHash(e)) return { deny: 'Agent Arbiter: host approval unavailable or the tool input changed; retry.' };
+    await pending.settle();
+    const denial = await pending.accept();
+    if (denial) return denial;
+    pending.approved = true;
+    return next(e);
+  }).catch(($, e, next) => next.called || next.origin?.plugin !== 'engine' || !hostApprovals.has(approvalKey(e))
+    ? next(e) : { deny: 'Agent Arbiter: could not verify host approval.' });
+
   on('tool.call', async ($, e, next) => {
     if (!await collecting($)) return next(e);
     let ctx, requestId;
@@ -218,8 +249,18 @@ export const register = (on, options = {}) => {
       if(classification.kind==='action')data.action=classification.request;
       requestId=await emit($, ctx, actor, 'tool.request', key, data);
     } catch { await warn($); }
+    let hostApproval = null;
     if(ctx){
-      const denied=await enforceTool($,ctx,e,data,requestId);
+      const deferApproval=async(question,accept,unanswered)=>{
+        try {
+          if ((await $.session.surfaces()).length) return undefined;
+        } catch { return undefined; } // Older engines keep their current prompt path.
+        if (!e.tool_use_id) return { deny: 'Agent Arbiter: host approval requires an original tool call ID.' };
+        hostApproval = { ctx, reason: question, accept, unanswered, inputHash: await approvalInputHash(e) };
+        hostApprovals.set(approvalKey(e),hostApproval);
+        return null;
+      };
+      const denied=await enforceTool($,ctx,e,data,requestId,next.origin?.plugin==='engine'?deferApproval:null);
       if(denied){
         try{await emit($,ctx,actor,'tool.result',key,{...data,status:'denied',court:true});}catch{await warn($);}
         noteActivity(ctx,actor,{tool:e.tool,target:data.file?.path ?? data.command,status:'denied'},data.turnId);
@@ -252,6 +293,11 @@ export const register = (on, options = {}) => {
       try { if (ctx) await emit($, ctx, actor, 'tool.result', key, { ...data, status: 'exception' }); } catch { await warn($); }
       throw error;
     } finally {
+      if (hostApproval) {
+        hostApprovals.delete(approvalKey(e));
+        await hostApproval.settle?.();
+        if (!hostApproval.approved) await hostApproval.unanswered?.();
+      }
       finish?.();
       if (settle) await settle();
       if (check && result?.deny === undefined) {

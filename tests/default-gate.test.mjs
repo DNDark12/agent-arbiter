@@ -4,6 +4,8 @@ import {world} from './fixtures.mjs';
 import {observationContext} from '../plugins/agent-arbiter/hooks/context.js';
 import {currentEnforcement} from '../plugins/agent-arbiter/hooks/controls.js';
 import {enforceTool} from '../plugins/agent-arbiter/hooks/gate.js';
+import {register} from '../plugins/agent-arbiter/hooks/register.js';
+import {readProject} from '../plugins/agent-arbiter/hooks/events.js';
 
 async function fresh(t){const w=await world(t);w.$.plugin.root=w.root+'/extension';w.$.session.id=async()=>w.root;await w.command('mode enforce');return w;}
 test('clean default enforcement needs no key, policy, settings or probe',async t=>{
@@ -37,6 +39,42 @@ test('outside project and Claude settings ask, Arbiter data is denied, ordinary 
  assert.match((await enforceTool(w.$,ctx,{tool:'Write',file_path:ctx.archiveRoot+'/projects/x/preferences.json'},{},'req')).deny,/denied by rule: file\.arbiter/);
  assert.equal(await enforceTool(w.$,ctx,{tool:'Write',file_path:w.root+'/src/a.js'},{},'req'),null);
  assert.equal(asks,3);
+});
+
+test('SDK approval uses the original tool call and cannot execute without a matching host check',async t=>{
+ const {$,root}=await fresh(t);
+ $.plugin.name='agent-arbiter';
+ $.session.surfaces=async()=>[];
+ let synthetic=0,runs=0;
+ $.ui.ask=async()=>{synthetic++;return 'Allow';};
+ const hooks=new Map(),origin={plugin:'engine',tier:'core'};
+ register((name,handler)=>{
+  if(typeof handler==='function')hooks.set(name,handler);
+  return {catch(){}};
+ },{language:'en'});
+ const invoke=async (id,{approver='host',answer=true,verdict='allow',skipCheck=false,rewrite=false}={})=>{
+  const event={tool:'Write',tool_use_id:id,file_path:root+'/.claude/settings.json',content:'{}'};
+  return hooks.get('tool.call')($,event,Object.assign(async()=>{
+   assert.equal(synthetic,0,'the SDK must not receive a nested approval tool call');
+   if(!skipCheck){
+    const check=await hooks.get('tool.check')($,{tool:event.tool,tool_use_id:id,approver:approver || undefined,
+     input:{file_path:event.file_path,content:event.content}},Object.assign(async()=>({decision:verdict,reason:'Engine decision'}),{origin}));
+    if(check.decision==='deny')return {deny:check.reason};
+    assert.equal(check.decision,'ask');
+    assert.match(check.reason,/Agent Arbiter/);
+    if(!answer)return {deny:'Host declined'};
+   }
+   return hooks.get('tool.run')($,rewrite?{...event,content:'rewritten'}:event,Object.assign(async()=>{runs++;return {result:'written'};},{origin}));
+  },{origin}));
+ };
+ assert.equal((await invoke('host-approved')).result,'written');
+ for(const [id,options] of [['declined',{answer:false}],['absent',{approver:null}],['engine-deny',{verdict:'deny'}],['skip',{skipCheck:true}],['rewrite',{rewrite:true}]]){
+  assert.ok((await invoke(id,options)).deny,id);
+ }
+ assert.equal(runs,1);
+ assert.equal(synthetic,0);
+ const {events}=await readProject($,await observationContext($));
+ assert.deepEqual(events.filter(e=>e.kind==='rule.decision'&&e.data.allowed).map(e=>e.data.outcome),['approved']);
 });
 test('configured broken anchor never blocks default or observe reads',async t=>{
  const w=await fresh(t);w.$.settings.read=async()=>({env:{AGENT_ARBITER_ANCHOR:'a'.repeat(64)}});
