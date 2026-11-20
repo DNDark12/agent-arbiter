@@ -41,7 +41,7 @@ test('outside project and Claude settings ask, Arbiter data is denied, ordinary 
  assert.equal(asks,3);
 });
 
-test('SDK approval uses the original tool call and cannot execute without a matching host check',async t=>{
+test('headless sessions block protected writes without sending a synthetic question',async t=>{
  const {$,root}=await fresh(t);
  $.plugin.name='agent-arbiter';
  $.session.surfaces=async()=>[];
@@ -52,29 +52,15 @@ test('SDK approval uses the original tool call and cannot execute without a matc
   if(typeof handler==='function')hooks.set(name,handler);
   return {catch(){}};
  },{language:'en'});
- const invoke=async (id,{approver='host',answer=true,verdict='allow',skipCheck=false,rewrite=false}={})=>{
-  const event={tool:'Write',tool_use_id:id,file_path:root+'/.claude/settings.json',content:'{}'};
-  return hooks.get('tool.call')($,event,Object.assign(async()=>{
-   assert.equal(synthetic,0,'the SDK must not receive a nested approval tool call');
-   if(!skipCheck){
-    const check=await hooks.get('tool.check')($,{tool:event.tool,tool_use_id:id,approver:approver || undefined,
-     input:{file_path:event.file_path,content:event.content}},Object.assign(async()=>({decision:verdict,reason:'Engine decision'}),{origin}));
-    if(check.decision==='deny')return {deny:check.reason};
-    assert.equal(check.decision,'ask');
-    assert.match(check.reason,/Agent Arbiter/);
-    if(!answer)return {deny:'Host declined'};
-   }
-   return hooks.get('tool.run')($,rewrite?{...event,content:'rewritten'}:event,Object.assign(async()=>{runs++;return {result:'written'};},{origin}));
-  },{origin}));
- };
- assert.equal((await invoke('host-approved')).result,'written');
- for(const [id,options] of [['declined',{answer:false}],['absent',{approver:null}],['engine-deny',{verdict:'deny'}],['skip',{skipCheck:true}],['rewrite',{rewrite:true}]]){
-  assert.ok((await invoke(id,options)).deny,id);
- }
- assert.equal(runs,1);
+ const write=async (id,path)=>hooks.get('tool.call')($,{tool:'Write',tool_use_id:id,file_path:root+path,content:'{}'},
+  Object.assign(async()=>{runs++;return {result:'written'};},{origin}));
+ assert.match((await write('protected-write','/.claude/settings.json')).deny || '',/Claude CLI or Desktop/);
+ assert.equal(runs,0);
  assert.equal(synthetic,0);
+ assert.equal((await write('ordinary-write','/source.js')).result,'written');
+ assert.equal(runs,1);
  const {events}=await readProject($,await observationContext($));
- assert.deepEqual(events.filter(e=>e.kind==='rule.decision'&&e.data.allowed).map(e=>e.data.outcome),['approved']);
+ assert.deepEqual(events.filter(e=>e.kind==='rule.decision').map(e=>e.data.outcome),['unanswered']);
 });
 test('configured broken anchor never blocks default or observe reads',async t=>{
  const w=await fresh(t);w.$.settings.read=async()=>({env:{AGENT_ARBITER_ANCHOR:'a'.repeat(64)}});

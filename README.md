@@ -119,6 +119,8 @@ Uninstalling the plugin keeps this data. Run `/arbiter purge all` first to remov
 
 ## Limits
 
+Claude Code in an interactive terminal or Claude Desktop can show Arbiter's approval dialog. In Zed and other sessions without a Claude Code interface for that dialog, Arbiter blocks actions that require its approval. Run those actions in an interactive Claude Code session to review the request.
+
 Agent Arbiter catches agent mistakes. It is not a security boundary against an agent that sets out to bypass it.
 
 ## Development

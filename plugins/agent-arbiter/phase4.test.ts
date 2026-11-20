@@ -25,7 +25,7 @@ test('native unavailable approval refuses destructive Bash before execution',asy
  world(on);let ran=0
  on('tool.call',{tool:'Bash'},()=>{ran++;return {result:'must not execute'}})
  const result=await $.tool.call({tool:'Bash',command:'git reset --hard HEAD'})
- expect(ran).toBe(0);expect(result.deny).toContain('approval declined')
+ expect(ran).toBe(0);expect(result.deny).toContain('approval requires an interactive session')
 })
 
 test('native ledger IO failure permits ordinary file edits and preserves protected path handling',async($,on)=>{
@@ -33,7 +33,7 @@ test('native ledger IO failure permits ordinary file edits and preserves protect
  on('tool.call',{tool:'Write'},()=>{ran++;return {result:'normal result'}})
  expect((await $.tool.call({tool:'Write',file_path:'/fixture/a.js',content:'x'})).deny).toBeUndefined()
  // Claude settings ask (nobody answers here); Arbiter data is denied by rule.
- expect((await $.tool.call({tool:'Write',file_path:'/fixture/.claude/settings.json',content:'x'})).deny).toContain('approval declined or unavailable')
+ expect((await $.tool.call({tool:'Write',file_path:'/fixture/.claude/settings.json',content:'x'})).deny).toContain('approval requires an interactive session')
  expect((await $.tool.call({tool:'Write',file_path:'/fixture-home/.claude/plugins/data/agent-arbiter/v1/events/x.json',content:'x'})).deny).toContain('denied by rule: file.arbiter')
  expect(ran).toBe(1)
 })

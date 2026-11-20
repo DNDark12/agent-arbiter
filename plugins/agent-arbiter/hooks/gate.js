@@ -23,39 +23,44 @@ const reportBudget=new Map();
 const pendingActors=new Map();
 export function endedTurn(ctx,agentId){turnBoundaries.set(ctx.sessionId+':'+(agentId || ''),Date.now());}
 
-async function askUnknown($,ctx,event,hostApproval){
+// A host may discard a plugin's permission request and then allow the tool
+// through its own policy. Only a surface with an Arbiter dialog can give consent.
+async function hasApprovalSurface($){
+  try{return (await $.session.surfaces()).length>0;}
+  catch{return false;}
+}
+const approvalUnavailable=()=>block('approval requires an interactive session. Open Claude CLI or Desktop to review this action.');
+
+async function askUnknown($,ctx,event){
+  if(!await hasApprovalSurface($))return approvalUnavailable();
   const inputHash=await digest(canonical(event));
   const detail=redact(event.command || event.file_path || event.notebook_path || JSON.stringify(Object.keys(event)));
   const question=`Agent Arbiter cannot prove action/scope for ${event.tool}, actor ${event.agentId || 'main'}, project ${ctx.projectRoot}. Requested input: ${detail}. Check the original tool panel if redacted/truncated. Allow only this tool call ${event.tool_use_id || inputHash} (hash ${inputHash})? This is not a reusable grant.`;
-  const accept=async()=>{
-    if(inputHash!==await digest(canonical(event)) || !(await runtimeReady($,ctx)).ready)return block('request or protected runtime changed during consent.');
-    const read=await readProject($,ctx);
-    if(read.invalid.length || replay(read.events).conflicts.length)return block('authenticated evidence integrity unavailable.');
-    if(event.agentId && actorSentence(read.events,ctx,event.agentId).held)return block('agent detained while consent was pending.');
-    await emit($,ctx,event.agentId || null,'tool.consent',event.tool_use_id || crypto.randomUUID(),{inputHash,allowed:true,source:{kind:'ui',origin:'composer',id:crypto.randomUUID()}});
-    return null;
-  };
-  const deferred=await hostApproval?.(question,accept);
-  if(deferred!==undefined)return deferred;
   let answer='';
   const settle=beginWait($,ctx,event.agentId || null,event.tool_use_id || crypto.randomUUID(),'approval');
   try{answer=await $.ui.ask(question,['Deny','Allow']);}catch{ /* No answer never grants. */ }
   finally{await settle();}
-  return answer==='Allow'?accept():block('consent declined or unavailable; no violation recorded.');
+  if(answer!=='Allow')return block('consent declined or unavailable; no violation recorded.');
+  if(inputHash!==await digest(canonical(event)) || !(await runtimeReady($,ctx)).ready)return block('request or protected runtime changed during consent.');
+  const read=await readProject($,ctx);
+  if(read.invalid.length || replay(read.events).conflicts.length)return block('authenticated evidence integrity unavailable.');
+  if(event.agentId && actorSentence(read.events,ctx,event.agentId).held)return block('agent detained while consent was pending.');
+  await emit($,ctx,event.agentId || null,'tool.consent',event.tool_use_id || crypto.randomUUID(),{inputHash,allowed:true,source:{kind:'ui',origin:'composer',id:crypto.randomUUID()}});
+  return null;
 }
 
-export async function enforceTool($,ctx,event,data,requestId,hostApproval){
+export async function enforceTool($,ctx,event,data,requestId){
   const key=ctx.sessionId+':'+(event.agentId || 'main');
   const previous=pendingActors.get(key) || Promise.resolve();
   const pending=previous.catch(()=>{}).then(async()=>{
     const state=await currentEnforcement($,ctx);
-    return state.hardened?enforceToolOne($,ctx,event,data,requestId,hostApproval):enforceDefault($,ctx,event,state,requestId,hostApproval);
+    return state.hardened?enforceToolOne($,ctx,event,data,requestId):enforceDefault($,ctx,event,state,requestId);
   });
   pendingActors.set(key,pending);
   try{return await pending;}finally{if(pendingActors.get(key)===pending)pendingActors.delete(key);}
 }
 
-async function enforceToolOne($,ctx,event,data,requestId,hostApproval){
+async function enforceToolOne($,ctx,event,data,requestId){
   const state=await currentEnforcement($,ctx);
   if(state.mode==='off')return null;
   if(state.mode!=='enforce' && !ctx.authConfigured)return null;
@@ -85,7 +90,7 @@ async function enforceToolOne($,ctx,event,data,requestId,hostApproval){
   if(['AskUserQuestion','TaskStop','SubagentHandback'].includes(event.tool))return null;
   const classified=event.tool==='Bash'?{kind:'unknown',reason:'Bash cwd/remote scope unproven'}:classifyTool(event,{...ctx,environment:'local',file:data.file});
   if(classified.kind==='read')return null;
-  if(classified.kind!=='action')return askUnknown($,ctx,event,hostApproval);
+  if(classified.kind!=='action')return askUnknown($,ctx,event);
   // No trusted Bash cwd/remote/environment is supplied by this gate. Its grammar
   // is unit-tested but Bash remains unknown in the production integration.
   const activeCases=new Set(reduceCases(read.events,ctx.projectId).cases.filter(record=>record.status==='active').map(record=>record.caseId));
@@ -93,8 +98,8 @@ async function enforceToolOne($,ctx,event,data,requestId,hostApproval){
   const request=classified.request;
   const laws=await approvedRules($,ctx,read.events);
   const decision=checkCurrentPolicy(request,reduceGrants(read.events),laws,ctx,Date.now());
-  if(decision.outcome==='allow')return probation?askUnknown($,ctx,event,hostApproval):null;
-  if(probation && decision.reason==='approval-required')return askUnknown($,ctx,event,hostApproval);
+  if(decision.outcome==='allow')return probation?askUnknown($,ctx,event):null;
+  if(probation && decision.reason==='approval-required')return askUnknown($,ctx,event);
   if(decision.outcome!=='deny' || !decision.violation || !requestId)return block('action held pending permission/review; no sentence.');
   const law=laws.rules.find(rule=>rule.id===decision.lawId);
   if(!law)return block('law unavailable; no sentence.');
@@ -216,7 +221,7 @@ async function violate($,ctx,event,decision,receipt,reason,requestId){
   void refreshStatus($,ctx);
   return sanctionMessage(record,decision.rules);
 }
-async function enforceDefault($,ctx,event,state,requestId,hostApproval){
+async function enforceDefault($,ctx,event,state,requestId){
   lastContext=ctx;
   if(state.mode!=='enforce')return null;
   const actor=event.agentId || null;
@@ -247,26 +252,15 @@ async function enforceDefault($,ctx,event,state,requestId,hostApproval){
     return violate($,ctx,event,decision,receipt,'retry-after-refusal',requestId);
   }
   if(sessionAllowed(ctx,decision.rules)){await recordDecision($,ctx,event,receipt,'session-allow');return null;}
+  if(!await hasApprovalSurface($)){
+    await recordDecision($,ctx,event,receipt,'unanswered');
+    return approvalUnavailable();
+  }
   const labels={deny:t('ask.deny'),once:t('ask.once'),session:t('ask.session')};
   const citizen=actor && discipline?citizenOf(discipline,ctx,actor):null;
   const who=actor?t('actor.agent',{name:citizen?citizen.name+(citizen.model?' ('+citizen.model+')':''):actor}):t('actor.main');
   const command=typeof event.command==='string'?t('ask.command',{command:redact(event.command).slice(0,300)}):'';
   const question=t('ask.question',{actor:who,detail:receipt.detail,command,rules:decision.rules.map(ruleLabel).join('; ')});
-  const accept=async(session=false)=>{
-    const current=await currentEnforcement($,ctx);
-    const freshActions=await defaultActions($,ctx,event);
-    if(canonical(freshActions)!==canonical(actions))return block('action target changed while approval was pending; retry.');
-    const fresh=matchRules(freshActions,await loadProjectSettings($,ctx));
-    if(current.mode==='enforce' && (current.hardened || fresh.effect==='deny'))return block('rule or mode changed while approval was pending; retry.');
-    if(actor && current.mode==='enforce' && runRecord(await disciplineState($,ctx),ctx.sessionId,actor).detained)return block('agent detained while approval was pending.');
-    if(session){
-      if(!sessionAllows.has(consentScope(ctx)))sessionAllows.set(consentScope(ctx),new Set());
-      for(const rule of decision.rules)sessionAllows.get(consentScope(ctx)).add(consentRule(rule));
-    }
-    await recordDecision($,ctx,event,receipt,'approved');return null;
-  };
-  const deferred=await hostApproval?.(question,accept,()=>recordDecision($,ctx,event,receipt,'unanswered'));
-  if(deferred!==undefined)return deferred;
   let answer='';
   const settle=beginWait($,ctx,actor,event.tool_use_id || crypto.randomUUID(),'approval');
   // Allow first: the common answer is one keystroke. Skip or dismiss still never grants.
@@ -278,7 +272,17 @@ async function enforceDefault($,ctx,event,state,requestId,hostApproval){
     await recordDecision($,ctx,event,receipt,refused?'refused':'unanswered');
     return block('approval declined or unavailable; no sentence recorded.');
   }
-  return accept(answer===labels.session);
+  const current=await currentEnforcement($,ctx);
+  const freshActions=await defaultActions($,ctx,event);
+  if(canonical(freshActions)!==canonical(actions))return block('action target changed while approval was pending; retry.');
+  const fresh=matchRules(freshActions,await loadProjectSettings($,ctx));
+  if(current.mode==='enforce' && (current.hardened || fresh.effect==='deny'))return block('rule or mode changed while approval was pending; retry.');
+  if(actor && current.mode==='enforce' && runRecord(await disciplineState($,ctx),ctx.sessionId,actor).detained)return block('agent detained while approval was pending.');
+  if(answer===labels.session){
+    if(!sessionAllows.has(consentScope(ctx)))sessionAllows.set(consentScope(ctx),new Set());
+    for(const rule of decision.rules)sessionAllows.get(consentScope(ctx)).add(consentRule(rule));
+  }
+  await recordDecision($,ctx,event,receipt,'approved');return null;
 }
 
 async function recordDecision($,ctx,event,receipt,outcome){

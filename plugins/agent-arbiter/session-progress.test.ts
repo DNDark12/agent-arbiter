@@ -37,6 +37,7 @@ test('a check failure and its successful retry reach the desktop history while c
 test('an Arbiter prompt appears in Inbox while open and its interval is recorded when dismissed', async ($, on) => {
   const w = world(on)
   mock.clock(on, { now: Date.now() })
+  on('session.surfaces', () => ({ value: ['desktop'] }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   const started = Promise.withResolvers<void>(), answer = Promise.withResolvers<void>()
   let dispatched = false
