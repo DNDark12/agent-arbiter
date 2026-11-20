@@ -62,6 +62,15 @@ export function sessionProgressDetails(h, timeline, contextPercent) {
   ];
 }
 
+export function checklistTaskRows(h, tasks, compact = false) {
+  return tasks.map(task => {
+    const time = task.startedAt === null ? '' : durationText((task.endedAt ?? Date.now()) - task.startedAt);
+    return h.Text({ key: 'task:' + task.id, ...(compact ? { maxLines: 1, wrap: 'truncate' } : {}), children: [
+      task.stage, task.label, t('progress.task.' + task.status), time,
+    ].filter(Boolean).join(' · ') });
+  });
+}
+
 export function checklistView(h, checklist, calls, { expanded, toggle, clear }) {
   const summary = checklistSummary(checklist);
   if (!summary.total && !calls) return [];
@@ -69,12 +78,7 @@ export function checklistView(h, checklist, calls, { expanded, toggle, clear }) 
     t('history.calls', { count: calls });
   return [h.Box({ key: 'session-checklist', flexDirection: 'column', gap: 1, children: [
     h.Button({ key: 'session-checklist-toggle', plain: true, label: `${expanded ? '▾' : '▸'} ${t('progress.checklist')} · ${description}`, onPress: toggle }),
-    ...(expanded ? checklist.tasks.map(task => {
-      const time = task.startedAt === null ? '' : durationText((task.endedAt ?? Date.now()) - task.startedAt);
-      return h.Text({ key: 'task:' + task.id, children: [
-        task.stage, task.label, t('progress.task.' + task.status), time,
-      ].filter(Boolean).join(' · ') });
-    }) : []),
+    ...(expanded ? checklistTaskRows(h, checklist.tasks) : []),
     ...(expanded && summary.total && clear ? [h.Button({ key: 'session-checklist-clear', plain: true, label: t('progress.clear'), onPress: clear })] : []),
   ] })];
 }

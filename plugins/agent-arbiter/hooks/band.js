@@ -10,7 +10,7 @@ import { currentActivity, decisionNote, outputRate, pendingWaits, sessionAsks } 
 import { DAILY_TRIALS, decideFinding, reduceReviews } from './judge.js';
 import { COLORS, RUN_COLORS, agentStripSvg, fraction, pillTrackSvg, pillWidth, roleIcon, svgOf } from './visuals.js';
 import { durationText } from './history.js';
-import { runState } from './history-view.js';
+import { checklistTaskRows, runState } from './history-view.js';
 import { bandDetail, bandDetailModel, progressTitle } from './progress-view.js';
 import { readProjectShared } from './events.js';
 import { releaseViolations } from './discipline.js';
@@ -261,6 +261,7 @@ export function registerBand(on) {
     const now = Date.now(), rows = sessionRows(snapshot, ctx, now);
     const agents = (snapshot.agents ?? []).map(agent => ({ ...agent, activity: currentActivity(ctx, agent.agentId) }));
     const openRun = agent => void openRulesPane($, ctx, 'citizens', { kind: 'run', sessionId: ctx.sessionId, agentId: agent?.agentId ?? null }).catch(() => {});
+    const openChecklist = () => void openRulesPane($, ctx, 'citizens', { kind: 'checklist', sessionId: ctx.sessionId }).catch(() => {});
     // Waiting items lead, then unfinished work, then recent completions.
     const compact = rows.find(row => row.waiting) ?? rows.find(row => row.running) ?? rows.find(row => row.live);
     if (!compact) { tick($, false); return next(e); }
@@ -272,12 +273,12 @@ export function registerBand(on) {
     const icon = (key, label, onPress) => h.Button({ key, label, plain: true, dimColor: true, onPress });
     const showDetails = () => {
       if (selected.key === 'waits') return void openAtWaiting($);
-      if (selected.key === 'checklist') return openRun(null);
+      if (selected.key === 'checklist') return openChecklist();
       void openRulesPane($, ctx, 'progress', { kind: 'progress', key: selected.key });
     };
     const tail = h.Box({ key: 'actions', flexDirection: 'row', gap: 1, flexShrink: 0, children: [
       ...(rows.length > 1 ? [icon('band-list', '≡', () => setBandExpanded($, ctx, Boolean(selected) || !expanded))] : []),
-      icon('band-open', '↗', selected ? showDetails : () => void openAtWaiting($)),
+      icon('band-open', '↗', selected ? showDetails : !expanded && compact.key === 'checklist' ? openChecklist : () => void openAtWaiting($)),
       icon('band-hide', '×', () => hideBand($, ctx)),
     ] });
     const gap = svgOf(h, e.surface) ? 1 : 0, fit = gap ? Math.floor((maxRows + 1) / 2) : maxRows;
@@ -296,7 +297,17 @@ export function registerBand(on) {
     if (!selected || room < 1) return h.Box({ flexDirection: 'column', gap, children: bars });
     if (selected.key === 'agents') return h.Box({ flexDirection: 'column', children: [...bars,
       ...(ctx.preferences.foldAgentStrips ? [] : agentStrips(h, e.surface, agents, columns, room, openRun, now, ctx.preferences.effects !== false))] });
-    if (selected.key === 'waits' || selected.key === 'checklist') return h.Box({ flexDirection: 'column', children: bars });
+    if (selected.key === 'checklist') {
+      const tasks = snapshot.checklist.tasks, more = tasks.length > room;
+      const taskRows = checklistTaskRows(h, tasks.slice(0, room - Number(more)), true);
+      return h.Box({ flexDirection: 'column', children: [...bars,
+        h.Box({ key: 'progress-tree-checklist', flexDirection: 'column', paddingLeft: 3, children: [
+          ...taskRows,
+          ...(more ? [h.Button({ key: 'band-more', label: t('band.showDetails'), plain: true, onPress: openChecklist })] : []),
+        ] }),
+      ] });
+    }
+    if (selected.key === 'waits') return h.Box({ flexDirection: 'column', children: bars });
     const detail = bandDetail(h, selected.key, bandDetailModel(snapshot, selected.key), room, {
       busy, more: showDetails,
       decide: (ref, decision) => void decideInBand($, ctx, ref, decision),

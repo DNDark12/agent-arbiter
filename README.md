@@ -1,8 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="plugins/agent-arbiter/icon-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="plugins/agent-arbiter/icon-light.png">
-    <img src="plugins/agent-arbiter/icon.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
+    <img src="plugins/agent-arbiter/icon-light.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
   </picture>
 </p>
 
@@ -72,7 +71,7 @@ The band above the prompt helps you see whether Claude needs a decision from you
 
 Select **≡** when several rows are available to see the expanded list, including judge usage. On Claude Desktop, Arbiter's progress bars start and end at the same columns. Narrow the window far enough and the band switches to counts beside the labels. When a bar reaches 100%, the fill reaches both right corners. An active progress mod can display its own band alongside Arbiter's with a separate layout.
 
-To show a checklist, open `/arbiter` and enable **Session checklist** under **Settings → Session display** for the current project. If you also enable **Hide finished checklist after 30 seconds**, complete the list and check that its row disappears after about 30 seconds. Open **Agents → Session History** after resuming the session to find the completed list.
+To show a checklist, open `/arbiter` and enable **Session checklist** under **Settings → Session display** for the current project. Select its band row to see the tasks and their status. Select **↗** from the checklist to open the full list in **Agents → Session History**. If you enable **Hide finished checklist after 30 seconds**, the row disappears from the band after that delay. The full list remains available in Session History after you resume.
 
 ## Built-in rules
 

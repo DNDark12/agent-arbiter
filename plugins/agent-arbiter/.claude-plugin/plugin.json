@@ -1,7 +1,7 @@
 {
   "name": "agent-arbiter",
   "displayName": "Agent Arbiter",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Rules and accountability for Claude Code agents: approvals before risky actions, sanctions for rule breaks, agent scores, lessons and an advisory judge.",
   "author": {
     "name": "DNDark",
@@ -25,7 +25,7 @@
   },
   "documentationUrl": "https://github.com/DNDark12/agent-arbiter#readme",
   "supportUrl": "https://github.com/DNDark12/agent-arbiter/issues",
-  "icon": "./icon.png",
+  "icon": "./icon-dark.png",
   "userConfig": {
     "enabled": {
       "type": "boolean",

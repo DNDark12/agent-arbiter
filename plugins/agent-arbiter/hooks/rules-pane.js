@@ -622,7 +622,8 @@ function focusOn(state,focus){
   if(focus==='jail')Object.assign(state,{tab:'violations',violationFilter:'active',pages:{...state.pages,violations:0}});
   if(focus?.kind==='progress')Object.assign(state,{tab:'progress',progressKind:focus.key,pages:{...state.pages,progress:0}});
   // A run pressed in the band: its session's timeline, at that run.
-  if(focus?.kind==='run')Object.assign(state,{tab:'citizens',agentSection:'history',historySession:focus.sessionId,detail:focus.agentId?{kind:'run',id:focus.agentId}:null});
+  if(focus?.kind==='run' || focus?.kind==='checklist')Object.assign(state,{tab:'citizens',agentSection:'history',historySession:focus.sessionId,
+    detail:focus.agentId?{kind:'run',id:focus.agentId}:null,...(focus.kind==='checklist'?{checklistSession:focus.sessionId}:{})});
 }
 async function inboxView($,h,ctx,state,settings){
   const data=await dataset($,ctx,state,settings);

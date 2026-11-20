@@ -1,8 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="icon-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="icon-light.png">
-    <img src="icon.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
+    <img src="icon-light.png" alt="Agent Arbiter icon: an A with a balance beam and jail bars" width="160" height="160">
   </picture>
 </p>
 
@@ -34,6 +33,7 @@ claude plugin install agent-arbiter@agent-arbiter
 - Reports main agent turns and subagent runs by model, with usage, duration, and quality grouped by role and difficulty. Totals can include all local projects.
 - Reviews eligible main turns and subagent runs with work evidence. The judge is advisory: a finding counts only when you confirm it.
 - The band above the prompt shows when a session needs your decision or has work in progress. Select **≡** when several rows are available to see them together. On Claude Desktop, Arbiter's progress bars line up and fill the right edge at 100%. [Progress band guide](https://github.com/DNDark12/agent-arbiter#progress-band)
+- Select the checklist row in the band to see its tasks. Select **↗** from the checklist to open the full list in Session History.
 
 Prompts, code and tool output are not stored. This mod catches agent mistakes; it is not a security boundary.
 

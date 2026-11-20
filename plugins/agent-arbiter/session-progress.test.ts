@@ -61,6 +61,39 @@ test('an Arbiter prompt appears in Inbox while open and its interval is recorded
   await ui.unmount()
 })
 
+test('a completed checklist opens its tasks from the desktop band and Session History', async ($, on) => {
+  const w = world(on)
+  w.files.set(await config(), JSON.stringify({ mode: 'observe', checklist: true }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  const report = await $.tool.call({ tool: 'mcp__agent-arbiter__session_progress', tool_use_id: 'checklist-fixture', tasks: [
+    { id: 'read', label: 'Read fixture', stage: 'QA', status: 'completed' },
+    { id: 'verify', label: 'Verify fixture', status: 'completed' },
+    { id: 'finish', label: 'Finish fixture', status: 'completed' },
+  ] })
+  expect(report.result).toBe('3/3')
+
+  const bandView = { plugin: 'agent-arbiter', surface: 'desktop', component: 'AbovePrompt' } as const
+  const expanded = await $.ui.mount({ ...bandView, props: band })
+  await expanded.key({ in: 'band-toggle-checklist', key: 'return' })
+  expect(await expanded.find({ text: 'QA · Read fixture · Done' })).toBeDefined()
+  expect(await expanded.find({ text: 'Finish fixture · Done' })).toBeDefined()
+  await expanded.unmount()
+
+  const narrow = await $.ui.mount({ ...bandView, props: { ...band, maxRows: 2 } })
+  expect(await narrow.find({ text: 'Finish fixture · Done' })).toBeUndefined()
+  await narrow.press({ key: 'band-more' })
+  const history = await $.ui.mount(pane)
+  expect((await history.find({ key: 'agent-section' }))?.props.value).toBe('history')
+  expect(await history.find({ text: 'Verify fixture · Done' })).toBeDefined()
+  await history.press({ key: 'session-checklist-toggle' })
+  expect(await history.find({ text: 'Verify fixture · Done' })).toBeUndefined()
+  await narrow.key({ in: 'band-toggle-checklist', key: 'return' })
+  await narrow.press({ key: 'band-open' })
+  expect(await history.find({ text: 'Verify fixture · Done' })).toBeDefined()
+  await history.unmount()
+  await narrow.unmount()
+})
+
 for (const tier of ['prepend', 'append'] as const satisfies readonly PluginTier[]) {
   for (const composition of ['own row', 'wrap next'] as const) {
     test(`native prompt rows coexist with a ${tier} mod using ${composition}`, {
