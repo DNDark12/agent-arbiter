@@ -108,6 +108,8 @@ const BUTTON_COLUMNS = 12;
 // The track takes the rest of the row; this only keeps a very wide window sane.
 const MAX_TRACK_COLUMNS = 160;
 const columnsOf = text => [...text].length + 2;
+// Desktop cells are wider than the terminal's.
+const trackPixels = (surface, cells) => cells * (surface === 'desktop' ? 8.5 : 7.5);
 
 function bandLabel(row, free, small) {
   const folded = !small && row.stat ? `${row.pill} · ${row.stat}` : row.pill;
@@ -117,24 +119,26 @@ function bandLabel(row, free, small) {
 // One bar as drawn. columns is the row's width in cells and the track fills
 // what the pill leaves; the figure goes first when room runs short, then the
 // track, never the pill. small: the one-bar band, with no figure.
-export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, labelColumns = null, effects = true) {
-  const Svg = svgOf(h, surface), free = columns - 4 - (tail || labelColumns ? BUTTON_COLUMNS : 0);
-  const spaceForTrack = label => row.max ? Math.min(MAX_TRACK_COLUMNS, free - (labelColumns ?? columnsOf(label)) - 1) : 0;
-  // Desktop cells are wider than the terminal's: size the track to the real row.
-  const trackPixels = cells => cells * (surface === 'desktop' ? 8.5 : 7.5);
+export function drawRow(h, surface, row, columns, tail, small = false, onPress = null, layout = null, effects = true) {
+  const Svg = svgOf(h, surface), free = columns - 4 - (tail || layout ? BUTTON_COLUMNS : 0);
+  const labelColumns = layout?.labelColumns;
+  const spaceForTrack = label => row.max ? layout?.trackColumns ?? Math.min(MAX_TRACK_COLUMNS, free - columnsOf(label) - 1) : 0;
   const meterLabel = progressTitle(row.key);
   const ratio = onPress && row.max ? `${row.value}/${row.max}` : '';
-  const badge = Svg && ratio && trackPixels(spaceForTrack(meterLabel)) >= pillWidth(ratio) + 24 ? ratio : '';
+  const badge = Svg && ratio && trackPixels(surface, spaceForTrack(meterLabel)) >= pillWidth(ratio) + 24 ? ratio : '';
   const label = ratio ? (badge ? meterLabel : `${meterLabel} · ${ratio}`) : bandLabel(row, free, small);
   const trackColumns = spaceForTrack(label);
   const lead = roleIcon(h, surface, row.role, 18, row.detained ? { detained: true, pulse: effects && row.pulse } : { animate: effects && row.waiting }, row.alt);
-  const labelText = h.Text({ bold: true, maxLines: 1, wrap: 'truncate', children: ` ${label} ` });
+  const inlineRatio = Svg && ratio && !badge;
+  const labelText = h.Text({ bold: true, maxLines: 1, wrap: 'truncate', children: ` ${inlineRatio ? meterLabel : label} ` });
   const content = [lead];
   if (Svg) {
-    if (onPress) content.push(labelColumns ? h.Box({ key: 'label-' + row.key, width: labelColumns, flexShrink: 0, children: [labelText] }) : labelText);
+    if (inlineRatio) content.push(h.Box({ flexShrink: 1, minWidth: 0, children: [labelText] }),
+      h.Box({ flexShrink: 0, children: [h.Text({ bold: true, children: `· ${ratio}` })] }));
+    else if (onPress) content.push(labelColumns ? h.Box({ key: 'label-' + row.key, width: labelColumns, flexShrink: 0, children: [labelText] }) : labelText);
     if (!onPress || trackColumns >= 4) {
       const trackLabel = onPress ? badge : label;
-      const width = onPress ? trackPixels(trackColumns) : Math.max(pillWidth(label) + 24, trackPixels(trackColumns));
+      const width = onPress ? trackPixels(surface, trackColumns) : Math.max(pillWidth(label) + 24, trackPixels(surface, trackColumns));
       const drawn = pillTrackSvg({ label: trackLabel, color: row.color, value: row.value, max: row.max, width, moving: effects });
       content.push(Svg({ source: drawn.source, alt: row.alt, width: drawn.width, height: drawn.height,
         ...(row.value > 0 && row.max > 0 ? { isInteractive: true } : {}) }));
@@ -279,11 +283,15 @@ export function registerBand(on) {
     const gap = svgOf(h, e.surface) ? 1 : 0, fit = gap ? Math.floor((maxRows + 1) / 2) : maxRows;
     const columns = bodyColumns ?? 80, visible = selected ? [selected] : expanded ? rows.slice(0, Math.max(1, fit)) : [compact];
     const free = columns - 4 - BUTTON_COLUMNS;
-    // Every bar keeps one length, open or closed: labels take the widest label's room.
+    // Keep the same label and track columns across the group, open or closed.
+    // If the common track cannot fit every badge, show counts beside the titles.
     const widestLabel = Math.max(...rows.map(row => columnsOf(row.max ? progressTitle(row.key) : row.pill)));
-    const labelColumns = gap && free - widestLabel >= 14 ? widestLabel : null;
+    const widestBadge = Math.max(0, ...rows.filter(row => row.max).map(row => pillWidth(`${row.value}/${row.max}`)));
+    const trackColumns = Math.min(MAX_TRACK_COLUMNS, free - widestLabel - 1);
+    const layout = gap ? (trackColumns >= 4 && trackPixels(e.surface, trackColumns) >= widestBadge + 24
+      ? { labelColumns: widestLabel, trackColumns } : { trackColumns: 0 }) : null;
     const bars = visible.map((row, index) => drawRow(h, e.surface, row, columns, index === 0 ? tail : undefined, !expanded,
-      () => selectBandProgress($, ctx, row.key), labelColumns, ctx.preferences.effects !== false));
+      () => selectBandProgress($, ctx, row.key), layout, ctx.preferences.effects !== false));
     const room = maxRows - 1;
     if (!selected || room < 1) return h.Box({ flexDirection: 'column', gap, children: bars });
     if (selected.key === 'agents') return h.Box({ flexDirection: 'column', children: [...bars,

@@ -41,10 +41,10 @@ Requires Claude Code 2.1.325 or later, on macOS or Linux.
 - **Discipline.** A warning for the main agent; a fine, then detention, for a subagent. A detained agent type restarts on another model.
 - **Scores and lessons.** Compare main agent turns and subagent runs by model, time, token usage and rule history in the project or across projects. Quality is grouped by role and difficulty with the number of scored reviews. New subagents can receive lessons from earlier violations.
 - **Judge.** Advisory reviews of main agent turns and subagent runs with recorded work evidence. A finding counts only when you confirm it.
-- **Band and notes.** A band above the prompt shows only what waits for you: detained agents, and review decisions as a bar of decided against waiting. **Open** goes straight to them without a line in the chat, and a toast says when something new arrives. Under each tool call Arbiter stopped to check, a short note names the rule and what came of it. The desktop app's right-click menu opens the panel too.
+- **Band and notes.** The [progress band](#progress-band) above the prompt shows items waiting for you and work in progress. **Open** takes you to the relevant panel, and a toast says when something new arrives. Under each tool call Arbiter stopped to check, a short note names the rule and its outcome. The desktop app's right-click menu opens the panel too.
 - **Role icons.** Each agent role has a pixel icon that idles with a small bob and blink, held still when your system asks for reduced motion; a detained agent stands behind bars. Scores, quality and clean runs are drawn as bars against their known totals.
 - **Session activity.** Open the agent strip to see a subagent's current tool and elapsed time. Inbox shows open questions and approval dialogs the plugin observes. Agents → Session History shows reported token usage, prompt wait time, context for the current session, and failed or unconfirmed checks. A successful retry of the same check closes a recorded failure.
-- **Checklist.** Turn it on in Settings → Session display. The plugin observes native task calls where available. In sessions without them the main agent can declare and update tasks with the optional session progress tool. History keeps the list for resume. Settings can fold agent strips, hide the finished checklist bar, control effects and sounds, and show the measured output rate.
+- **Checklist.** The plugin observes native task calls where available. The main agent can also declare and update tasks through the session progress tool. Session History keeps the list so work can resume later.
 
 ## Usage
 
@@ -65,6 +65,14 @@ Global enable and language apply across projects on this computer. Mode, rules, 
 Maintenance actions explain their scope and ask for confirmation. Deleting data also opens an approval dialog. Resetting rules keeps judge, lesson and role preferences, along with violation history.
 
 Existing commands still work as optional shortcuts. `/arbiter rules` opens Rules directly; `/arbiter off` is the emergency switch. Use `/arbiter help commands` for the command list and `/arbiter help advanced` for the experimental hardened runtime.
+
+### Progress band
+
+The band above the prompt helps you see whether Claude needs a decision from you or work is still running. In the compact view, an open review takes priority over a running subagent. Once you decide the review, the subagent takes over. If it finishes while the checklist still has open tasks, the checklist takes over. Recent completions can appear when there is no active work.
+
+Select **≡** when several rows are available to see the expanded list, including judge usage. On Claude Desktop, Arbiter's progress bars start and end at the same columns. Narrow the window far enough and the band switches to counts beside the labels. When a bar reaches 100%, the fill reaches both right corners. An active progress mod can display its own band alongside Arbiter's with a separate layout.
+
+To show a checklist, open `/arbiter` and enable **Session checklist** under **Settings → Session display** for the current project. If you also enable **Hide finished checklist after 30 seconds**, complete the list and check that its row disappears after about 30 seconds. Open **Agents → Session History** after resuming the session to find the completed list.
 
 ## Built-in rules
 
@@ -121,6 +129,12 @@ claude --plugin-dir "$(pwd)/plugins/agent-arbiter"
 node --test tests/*.test.mjs
 claude plugin test plugins/agent-arbiter
 ```
+
+| To change or check | Where to look |
+|---|---|
+| Which row the band shows and how the expanded rows line up | [Band renderer](plugins/agent-arbiter/hooks/band.js) |
+| How the filled area and the completed edge are drawn | [SVG renderer](plugins/agent-arbiter/hooks/visuals.js) |
+| Whether priority, narrow layouts and the finished edge still work | [Band regression tests](tests/band.test.mjs). Run `node --test tests/band.test.mjs`. |
 
 ## License
 

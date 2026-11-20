@@ -97,6 +97,18 @@ test('the pill sits at the fill end, opens the track when nothing is done, and s
   assert.doesNotMatch(pillTrackSvg({label:'<b>',color:'#F7B74E"/><script>'}).source,/<script>|<b>/);
 });
 
+test('a completed pill track fills the square end to the edge in its progress color',()=>{
+  const options={color:'#39BFBB',max:3,width:240};
+  const partial=pillTrackSvg({...options,label:'2/3',value:2}).source;
+  assert.match(partial,/<path [^>]*fill="url\(#pill-blend\)"/);
+  for (const label of ['3/3','']) {
+    const done=pillTrackSvg({...options,label,value:3}).source;
+    assert.match(done,/<rect width="240" height="20" fill="url\(#pill-blend\)"\/>/);
+    assert.match(done,/<stop offset="1" stop-color="#39BFBB"\/><\/linearGradient><\/defs>/);
+    assert.doesNotMatch(done,/<path [^>]*fill="url\(#pill-blend\)"/);
+  }
+});
+
 test('decided counts only reviews still in their waiting window',()=>{
   const now=Date.now(),day=24*60*60*1000;
   const review=(age,states,exemplar='none')=>({at:now-age*day,findings:states.map(state=>({state})),exemplar:{state:exemplar}});
@@ -227,12 +239,13 @@ test('the agents bar counts this session’s finished agents and lists them with
 });
 
 test('the collapsed band puts waiting items, running agents and the unfinished checklist ahead of counters',async t=>{
+  forgetNotes();
   const {$}=await world(t),ctx=await observationContext($);
   $.ui={...$.ui,resolve:()=>table(),invalidate(){}};
   const hooks=[];
   registerBand((...args)=>hooks.push(args));
   const render=hooks.find(([event,match])=>event==='ui.render' && match.component==='AbovePrompt')[2];
-  const draw=()=>render($,{surface:'desktop',props:{bodyColumns:90,maxRows:8,hasSurvey:false}},()=>null);
+  const draw=(bodyColumns=90)=>render($,{surface:'desktop',props:{bodyColumns,maxRows:8,hasSurvey:false}},()=>null);
   const rowKeys=tree=>find(tree,'Box').map(node=>node.props.key).filter(key=>['jail','reviews','agents','checklist','judge'].includes(key));
   const openList=tree=>find(tree,'Button').find(node=>node.props.key==='band-list').props.onPress();
   await saveProjectSettings($,ctx,{mode:'observe',checklist:true});
@@ -257,6 +270,16 @@ test('the collapsed band puts waiting items, running agents and the unfinished c
     findings:[{claim:'Unresolved QA check',evidence:'Synthetic fixture',severity:'high',dimension:'honesty'}]});
   await refreshStatus($,ctx);
   assert.deepEqual(rowKeys(await draw()),['reviews']);
+  openList(await draw());
+  assert.deepEqual(rowKeys(await draw(42)),['reviews','agents','judge','checklist']);
+  const meterSizes=async columns=>find(await draw(columns),'Svg')
+    .filter(svg=>svg.props.source.includes('id="track-tint"')).map(({props})=>[props.width,props.height]);
+  const medium=await meterSizes(42);
+  assert.equal(medium.length,4);
+  assert.deepEqual(medium,Array(4).fill(medium[0]),'sibling meters keep the same dimensions with a narrow shared track');
+  assert.deepEqual(await meterSizes(26),[],'when one track cannot fit, all four use inline counts');
+  assert.match(texts(await draw(26)).join(' '),/Reviews\s+· 1\/2/);
+  openList(await draw());
   await emit($,ctx,null,'judge.decision','handled',{reviewId:pending,finding:0,decision:'dismissed',source:{origin:'ui'}});
   await emit($,ctx,'a','turn.complete','finished',{reason:'answer',durationMs:1000});
   await refreshStatus($,ctx);

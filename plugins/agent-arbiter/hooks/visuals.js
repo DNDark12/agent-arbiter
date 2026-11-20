@@ -145,19 +145,23 @@ export function pillTrackSvg({ label, color, value = 0, max = null, width = 240,
   if (!Number.isFinite(max) || max <= 0) return svg(pill, pillShape + pillText(0));
   const track = Math.max(pill + 24, Math.round(width));
   const free = track - pill, share = fraction({ value, max });
+  const complete = share === 1;
   // One decided item moves the pill even on a short track.
-  const start = share > 0 ? Math.min(share < 1 ? free - Math.min(10, free / 2) : free, Math.max(Math.min(10, free / 2), Math.round(share * free))) : 0, end = start + pill;
+  const margin = Math.min(10, free / 2);
+  const start = complete ? free : share > 0 ? Math.min(free - margin, Math.max(margin, Math.round(share * free))) : 0;
+  const end = start + pill;
   const parts = [
     `<defs><linearGradient id="track-tint"><stop offset="0" stop-color="${fill}" stop-opacity="0"/><stop offset=".14" stop-color="${fill}" stop-opacity=".01"/><stop offset="1" stop-color="${fill}" stop-opacity=".22"/></linearGradient></defs>`,
     `<rect width="${track}" height="${PILL_HEIGHT}" fill="url(#track-tint)"/>`,
   ];
   if (start > 0) {
     // The dots fade into a solid colour before reaching the first digit.
-    const shoulder = start + Math.min(mid, pill / 4);
-    if (pill) parts.push(
+    const shoulder = complete && !pill ? end - mid : start + Math.min(mid, pill / 4);
+    if (pill || complete) parts.push(
       `<defs><linearGradient id="pill-blend" gradientUnits="userSpaceOnUse" x1="${Math.max(0,start-24)}" x2="${shoulder}"><stop stop-color="${fill}" stop-opacity="0"/><stop offset=".62" stop-color="${fill}" stop-opacity=".31"/><stop offset="1" stop-color="${fill}"/></linearGradient></defs>`,
-      `<path d="M0 0H${end-mid}a${mid} ${mid} 0 0 1 0 ${PILL_HEIGHT}H0Z" fill="url(#pill-blend)"/>`);
-    parts.push(pixelStream(fill,start,shoulder,moving && start>12,Date.now()));
+      complete ? `<rect width="${track}" height="${PILL_HEIGHT}" fill="url(#pill-blend)"/>`
+        : `<path d="M0 0H${end-mid}a${mid} ${mid} 0 0 1 0 ${PILL_HEIGHT}H0Z" fill="url(#pill-blend)"/>`);
+    parts.push(pixelStream(fill, Math.min(start, shoulder), shoulder, moving && start > 12, Date.now()));
   }
   for (let i = 1; i < 4; i++) {
     const x = Math.round((i * track) / 4);
